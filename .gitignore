@@ -1,0 +1,9 @@
+.env
+*.key
+__pycache__/
+.venv/
+*.wav
+*.mp3
+*.pt
+*.bin
+*.safetensors
