@@ -1,0 +1,15 @@
+
+## Project Structure
+
+- `data_preprocessing.py` - Audio preprocessing and dataset preparation
+- `model_architecture.py` - Neural network model definitions
+- `training_script.py` - Model training pipeline
+- `evaluation_metrics.py` - Performance evaluation utilities
+- `config.yaml` - Configuration file for model and training parameters
+
+## Usage
+
+1. Prepare your dataset with audio files and corresponding transcripts
+2. Update `config.yaml` with your data paths and parameters
+3. Train the model:
+
