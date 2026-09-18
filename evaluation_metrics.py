@@ -1,6 +1,7 @@
 import numpy as np
 from collections import Counter
 import editdistance
+import torch
 
 class EvaluationMetrics:
     def __init__(self, char_to_idx, idx_to_char):
