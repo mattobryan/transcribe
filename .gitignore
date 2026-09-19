@@ -7,3 +7,12 @@ __pycache__/
 *.pt
 *.bin
 *.safetensors
+.aider*
+*.pkl
+*.egg-info/
+build/
+dist/
+data/audio/*
+!data/audio/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep

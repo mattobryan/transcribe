@@ -1,8 +1,32 @@
-torch>=1.9.0
-torchaudio>=0.10.0
-librosa>=0.8.0
-numpy>=1.21.0
-scikit-learn>=1.0.0
-editdistance>=0.3.0
-nltk>=3.6.0
-pyyaml>=5.4.0
+# Runtime dependencies for the code-switching transcriber.
+# Tested on CPython 3.10/3.11 (Windows, CPU). Install with:
+#   python -m pip install -r requirements.txt
+#
+# IMPORTANT: always use `python -m pip`, NOT a bare `pip`. On some machines a
+# bare `pip` points to a *different* Python (e.g. 3.13) than the `python` that
+# runs this project (e.g. 3.10), so installed packages never become visible to
+# the project. `python -m pip` guarantees you hit the right interpreter.
+
+# ---- Deep learning (CPU build is fine) ----
+torch>=2.0
+# torchaudio is intentionally NOT listed: this package never imports it, and
+# pinning it would force a strictly-matching torch/torchaudio version pair.
+
+# ---- Audio / speech processing ----
+librosa>=0.10,<0.12      # 0.11.x API; librosa 1.0 introduced breaking changes
+soundfile>=0.12,<0.15    # librosa's WAV backend (not pulled in explicitly before)
+numba>=0.57,<0.68        # librosa's JIT engine (kept in sync with numpy)
+
+# ---- Scientific stack ----
+numpy>=1.24,<2.3         # numpy 2.x is an ABI-breaking release; cap below the
+#                          next unknown break with the tested upper bound.
+scipy>=1.10,<1.16
+scikit-learn>=1.1
+editdistance>=0.6
+python-Levenshtein>=0.12
+
+# ---- Text / evaluation ----
+nltk>=3.7
+
+# ---- Configuration ----
+PyYAML>=6.0

@@ -10,19 +10,29 @@ sample_rate: 16000
 n_mfcc: 13
 n_fft: 2048
 hop_length: 512
+max_audio_length: null
 
 # Model architecture
+model_type: "ctc"  # "ctc" or "seq2seq"
 hidden_dim: 256
 num_layers: 3
 dropout: 0.2
 bidirectional: true
 
+# Seq2Seq specific
+decoder_layers: 2
+teacher_forcing_ratio: 0.5
+
 # Training parameters
 batch_size: 16
 learning_rate: 0.001
+weight_decay: 0.0001
 epochs: 100
 save_every: 10
-weight_decay: 0.0001
+eval_every: 5
+grad_clip: 1.0
+scheduler_patience: 5
+scheduler_factor: 0.5
 
 # Language settings
 languages:
@@ -31,12 +41,14 @@ languages:
 code_switching: true
 
 # Vocabulary settings
-min_char_frequency: 5
+min_char_frequency: 1
 max_sequence_length: 200
 
 # Evaluation
-eval_every: 5
 metrics:
   - wer
   - cer
   - bleu
+
+# Device
+device: "auto"
