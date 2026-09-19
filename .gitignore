@@ -16,3 +16,4 @@ data/audio/*
 !data/audio/.gitkeep
 checkpoints/*
 !checkpoints/.gitkeep
+data/projects/

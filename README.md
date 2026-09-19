@@ -2,6 +2,9 @@
 
 A custom speech-to-text transcriber for English-Swahili code-switching speech patterns commonly found in Kenya.
 
+See [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md) for the complete corpus-preparation,
+chunk review, WER, training, and implementation workflow.
+
 ## Features
 
 - Handles mixed English-Swahili speech recognition
@@ -91,6 +94,39 @@ python -m src.transcribe.script.evaluate --checkpoint checkpoints/final_model.pt
 ```bash
 python -m src.transcribe.script.infer --audio data/audio/sample1.wav --checkpoint checkpoints/final_model.pt
 ```
+
+## Prepare Reviewed Long Recordings
+
+The annotation workflow starts from the complete audio and reviewed DOCX transcript. It
+keeps both source files unchanged, detects candidate speech regions, exports short WAV
+chunks, and writes a review manifest.
+
+```bash
+python -m pip install -r requirements-annotation.txt
+python -m src.transcribe.script.parse_transcript \
+  --transcript data/transcripts/NRCCW_KSM09.docx \
+  --audio data/audio/NRCCW_KSM09.wav \
+  --output data/projects/NRCCW_KSM09/transcript.json
+python -m src.transcribe.script.prepare_audio \
+  --audio data/audio/NRCCW_KSM09.wav \
+  --output-dir data/projects/NRCCW_KSM09/chunks \
+  --manifest data/projects/NRCCW_KSM09/audio.json \
+  --transcript-manifest data/projects/NRCCW_KSM09/transcript.json
+python -m src.transcribe.script.review \
+  --manifest data/projects/NRCCW_KSM09/audio.json
+```
+
+After reviewing and adding approved transcripts to the rich segment manifest:
+
+```bash
+python -m src.transcribe.script.export_training_manifest \
+  --input data/projects/NRCCW_KSM09/reviewed.json \
+  --output data/metadata.json
+python -m src.transcribe.script.train --config config/default.yaml
+```
+
+The first implementation uses energy-based VAD and manual review. Forced alignment can
+be added later as an optional suggestion layer; it must not overwrite the reviewed text.
 
 ## Configuration
 

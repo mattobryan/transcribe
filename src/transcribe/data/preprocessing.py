@@ -155,7 +155,13 @@ class DataPreprocessor:
         transcripts = []
 
         for item in metadata:
-            audio_path = data_dir / item['audio_file']
+            audio_reference = Path(item['audio_file'])
+            if audio_reference.is_absolute():
+                audio_path = audio_reference
+            elif audio_reference.exists():
+                audio_path = audio_reference
+            else:
+                audio_path = data_dir / audio_reference
             if audio_path.exists():
                 audio_files.append(str(audio_path))
                 transcripts.append(item['transcript'])
