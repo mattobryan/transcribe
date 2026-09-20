@@ -25,7 +25,7 @@ from src.transcribe.evaluation.metrics import EvaluationMetrics
 
 
 def load_checkpoint(path):
-    ckpt = torch.load(path, map_location='cpu')
+    ckpt = torch.load(path, map_location='cpu', weights_only=False)
     with open(Path(path).parent / 'vocab.pkl', 'rb') as f:
         vocab_data = pickle.load(f)
     return ckpt, vocab_data

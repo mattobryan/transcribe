@@ -23,7 +23,7 @@ from src.transcribe.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
 
 def load_checkpoint(path):
     '''Load checkpoint and return model, config, vocab mappings.'''
-    ckpt = torch.load(path, map_location='cpu')
+    ckpt = torch.load(path, map_location='cpu', weights_only=False)
     ckpt_path = Path(path)
     with open(ckpt_path.parent / 'vocab.pkl', 'rb') as f:
         vocab_data = pickle.load(f)

@@ -146,7 +146,9 @@ def _model_transcribe(audio_file: str, checkpoint_path: str) -> str:
     from src.transcribe.models.ctc_model import CTCCodeSwitchingTranscriber
     from src.transcribe.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
 
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    # Checkpoints are saved locally by this repo; disable weights_only to allow
+    # the stored config dict (which may contain pathlib objects) to unpickle.
+    checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     checkpoint_dir = Path(checkpoint_path).parent
     with (checkpoint_dir / "vocab.pkl").open("rb") as handle:
         vocab_data = pickle.load(handle)
@@ -192,10 +194,13 @@ def _model_transcribe(audio_file: str, checkpoint_path: str) -> str:
 def transcribe_current(project: Dict[str, Any], path: str, index: int, checkpoint: str):
     if not checkpoint:
         return (*_segment_values(project, path, max(0, int(index) - 1)),
-                "No checkpoint supplied. Enter a trained .pt checkpoint first.")
+                "No checkpoint supplied. Type a .pt path in the 'Checkpoint (.pt)' box below "
+                "(e.g. checkpoints/final_model.pt), or use 'Save and Continue' to approve "
+                "manually until a model is trained.")
     if not Path(checkpoint).exists():
         return (*_segment_values(project, path, max(0, int(index) - 1)),
-                f"Checkpoint not found: {checkpoint}")
+                f"Checkpoint not found: {checkpoint}. Verify the path, or train one with "
+                "`python -m src.transcribe.script.train --config config/default.yaml`.")
     internal_index = max(0, min(int(index) - 1, len(_segments(project)) - 1))
     segment = _segments(project)[internal_index]
     try:
@@ -322,6 +327,10 @@ def launch(manifest_path: str, checkpoint_path: str = "", share: bool = False) -
             transcribe_status = gr.Textbox(label="Transcription status", interactive=False)
         audio = gr.Audio(label="Audio chunk", value=initial[4], type="filepath")
         transcribe = gr.Button("Transcribe", variant="primary")
+        checkpoint_box = gr.Textbox(
+            label="Checkpoint (.pt)", value=checkpoint_path or "",
+            placeholder="checkpoints/final_model.pt",
+        )
         transcript = gr.Textbox(
             label="Edit transcript", value=initial[5], lines=7,
         )
@@ -368,7 +377,11 @@ def launch(manifest_path: str, checkpoint_path: str = "", share: bool = False) -
         previous.click(lambda p, path, i: _segment_values(p, path, max(0, int(i) - 2)), [project_state, path_state, index], fields)
         next_button.click(lambda p, path, i: _segment_values(p, path, min(len(_segments(p)) - 1, int(i))), [project_state, path_state, index], fields)
         index.change(select_display, [project_state, path_state, index], fields)
-        transcribe.click(transcribe_current, [project_state, path_state, index, gr.State(checkpoint_path)], fields + [transcribe_status])
+        transcribe.click(
+            transcribe_current,
+            [project_state, path_state, index, checkpoint_box],
+            fields + [transcribe_status],
+        )
         save_continue.click(save_and_next, [project_state, path_state, index, transcript, start, end, transcript_turn_id, hypothesis, speaker_paragraph, unclear, overlap], fields)
         save_exit.click(save_and_exit, [project_state, path_state, index, transcript, status, start, end, transcript_turn_id, hypothesis, speaker_paragraph, unclear, overlap], review_status)
     demo.launch(share=share)
