@@ -1,0 +1,35 @@
+\begin{tikzpicture}[node distance=0.6cm and 0.9cm]
+  % Local machine
+  \node[kbox,text width=3.2cm] (ui) {Gradio UI\\{\scriptsize Transcribe · Corpus Studio · Models}};
+  \node[kbox,right=of ui] (api) {FastAPI\\{\scriptsize /api/v1}};
+  \node[kbox,right=of api,text width=2.6cm] (w) {Worker process\\{\scriptsize DB-backed job queue}};
+  \node[kstore,below=1.1cm of api] (db) {SQLite\\{\scriptsize transcribe.db}};
+  \node[kstore,below=1.1cm of w] (fs) {File store\\{\scriptsize data/store/}};
+  \node[kbox,right=1.1cm of w,yshift=1.0cm,text width=2.9cm] (al) {Aligner\\{\scriptsize MMS-300m CTC + uroman}};
+  \node[kbox,below=0.35cm of al,text width=2.9cm] (vad) {Silero VAD};
+  \node[kbox,below=0.35cm of vad,text width=2.9cm] (asr) {faster-whisper\\{\scriptsize CTranslate2 int8}};
+  \begin{scope}[on background layer]
+    \node[kgroup,fit=(al)(vad)(asr),inner sep=10pt,label={[kglabel]north:Engines}] (eng) {};
+    \node[kgroup,fit=(ui)(api)(w)(db)(fs)(eng),inner sep=14pt,
+      label={[kglabel]north west:Local machine (CPU)}] (local) {};
+  \end{scope}
+  \draw[karrow] (ui) -- (api);
+  \draw[karrow] (api) -- (w);
+  \draw[karrow] (api) -- (db);
+  \draw[karrow] (w) -- (db);
+  \draw[karrow] (w) -- (fs);
+  \draw[karrow] (w.east) -- (al.west);
+  \draw[karrow] (w.east) -- (vad.west);
+  \draw[karrow] (w.east) -- (asr.west);
+  % Kaggle
+  \node[kstore,below=2.6cm of db,xshift=-2.2cm,text width=2.6cm] (kd) {Private Kaggle Dataset\\{\scriptsize snapshot vN}};
+  \node[kbox,right=of kd,text width=3.0cm] (nb) {Training notebook\\{\scriptsize HF Seq2SeqTrainer}};
+  \node[kstore,right=of nb,text width=2.2cm] (km) {Model output\\{\scriptsize HF format}};
+  \begin{scope}[on background layer]
+    \node[kgroup,fit=(kd)(nb)(km),inner sep=12pt,label={[kglabel]north west:Kaggle (GPU)}] {};
+  \end{scope}
+  \draw[karrow] (kd) -- (nb);
+  \draw[karrow] (nb) -- (km);
+  \draw[karrow] (fs.south) to[out=-110,in=40] node[klabel,pos=0.35] {export snapshot} (kd.north east);
+  \draw[karrow] (km.north) to[out=80,in=-60] node[klabel,pos=0.5] {download + convert} (fs.south east);
+\end{tikzpicture}

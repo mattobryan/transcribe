@@ -1,0 +1,225 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{06}{Implementation Plan}{%
+Status & Draft v1 \\
+Team & 1 developer/reviewer. CPU laptop + Kaggle GPU \\
+Related & All previous docs. Each task ID maps to PRD/TRD requirement IDs where applicable \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+The phases are ordered so that each one produces something usable and measurable. Estimates are working days for one person. Review hours for labelling are listed separately because they run in parallel with coding.
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/gantt}}
+\caption{Indicative schedule for one developer (working days).}
+\end{figure}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{phase-0-foundations-5-days}{%
+\section{Phase 0: Foundations (≈5 days)}\label{phase-0-foundations-5-days}}
+
+Goal: a clean base that stops the known bugs from spreading into new work.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P0.1 & Make \texttt{transcribe} an installable package: drop the \texttt{sys.\allowbreak{}path} hack and the \texttt{src.\allowbreak{}} imports; entry points \texttt{transcribe-\allowbreak{}api}, \texttt{transcribe-\allowbreak{}worker}, \texttt{transcribe-\allowbreak{}cli} & \texttt{pip install -\allowbreak{}e .\allowbreak{}} then \texttt{python -\allowbreak{}c "import transcribe"} works; all scripts run via \texttt{python -\allowbreak{}m transcribe.\allowbreak{}.\allowbreak{}.\allowbreak{}} \\
+P0.2 & Move \texttt{models/\allowbreak{}}, \texttt{training/\allowbreak{}}, \texttt{data/\allowbreak{}}, \texttt{script/\allowbreak{}\{train,\allowbreak{}evaluate,\allowbreak{}infer\}.\allowbreak{}py} into \texttt{transcribe/\allowbreak{}legacy/\allowbreak{}} unchanged & Legacy train still runs on a toy dataset \\
+P0.3 & \textbf{Fix:} \texttt{transcribe\_\allowbreak{}current} must not overwrite \texttt{segment["transcript"]}; store the hypothesis only & Test: after Transcribe, the transcript equals the previous value \\
+P0.4 & \textbf{Fix:} grouped split by recording in the legacy \texttt{prepare\_\allowbreak{}dataset}; build the vocabulary from train only & Test: no recording in two splits \\
+P0.5 & Add pytest, ruff, and a GitHub Actions workflow (Ubuntu, Py 3.10) & CI green on the branch \\
+P0.6 & SQLAlchemy models + Alembic initial migration from \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} & \texttt{alembic upgrade head} creates all tables; invariant tests 1, 2, 8 pass \\
+P0.7 & \texttt{transcribe.\allowbreak{}db.\allowbreak{}migrate\_\allowbreak{}json} imports the existing \texttt{data/\allowbreak{}projects/\allowbreak{}*} manifests & Approved segments are preserved; candidates are dropped with a count printed \\
+P0.8 & Extend \texttt{docs/\allowbreak{}STYLE\_\allowbreak{}GUIDE.\allowbreak{}md} (v0.1 drafted) (verbatim rules, hybrid words, numbers, markers, language tags) with 20 worked examples from real transcripts & Reviewed by you; referenced from the UI help \\
+P0.9 & Split requirements into \texttt{requirements/\allowbreak{}*.\allowbreak{}txt} as in the TRD §7 & Fresh venv installs \texttt{core+corpus+ui} on Windows and Linux \\
+\end{longtable}
+
+\hypertarget{phase-1-alignment-pipeline-7-days}{%
+\section{Phase 1: Alignment pipeline (≈7 days)}\label{phase-1-alignment-pipeline-7-days}}
+
+Goal: DOCX + audio in, pre-filled segments out.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P1.1 & \texttt{corpus/\allowbreak{}ingest.\allowbreak{}py}: sha256, ffmpeg normalise to 16 kHz mono, store the original & Re-importing the same file → 409 \\
+P1.2 & Move the parsers into \texttt{corpus/\allowbreak{}parsers/\allowbreak{}}; add \texttt{text\_\allowbreak{}align} + \texttt{word\_\allowbreak{}map} generation (\texttt{corpus/\allowbreak{}textnorm.\allowbreak{}py}) & Unit tests: annotations removed, number verbalisation (EN via num2words + \texttt{numbers\_\allowbreak{}sw.\allowbreak{}py}, candidates scored by the aligner, \texttt{number\_\allowbreak{}check} flag on ties), word map round-trips to the raw text \\
+P1.3 & \texttt{corpus/\allowbreak{}align.\allowbreak{}py}: an \texttt{Aligner} protocol + an MMS implementation (windowed emissions, turn-anchored alignment, per-word scores) & 60 s fixture aligns with mean word boundary error \textless{} 100 ms vs. hand labels; a 1 h recording aligns on CPU in \textless{} 20 min \\
+P1.4 & \texttt{corpus/\allowbreak{}segment.\allowbreak{}py}: the TRD §3 policy (≤ 30 s, 1.5 s minimum, gap ≥ 300 ms, turn-aware, padding) & Property tests: no segment \textgreater{} 30 s, no word cut, full coverage of aligned words \\
+P1.5 & Auto-flags (\texttt{low\_\allowbreak{}alignment}, \texttt{unclear\_\allowbreak{}marker}, \texttt{overlap\_\allowbreak{}marker}) + \texttt{priority.\allowbreak{}py} & Unit tests on synthetic inputs \\
+P1.6 & \texttt{jobs} worker loop with claim, heartbeat and retry; job kinds \texttt{parse\_\allowbreak{}transcript}, \texttt{align} & Killing the worker mid-job → the job is re-queued and completes on restart \\
+P1.7 & \textbf{Calibrate θ}: align one real recording, hand-check 50 segments, and set the \texttt{low\_\allowbreak{}alignment} threshold to catch ≥ 90\% of bad segments & The threshold and its precision/recall are recorded in \texttt{docs/\allowbreak{}experiments/\allowbreak{}E1\_\allowbreak{}alignment.\allowbreak{}md} \\
+\end{longtable}
+
+\hypertarget{phase-2-review-ui-v2-6-days}{%
+\section{Phase 2: Review UI v2 (≈6 days)}\label{phase-2-review-ui-v2-6-days}}
+
+Goal: reviewing becomes verification, driven from the keyboard.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.508}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.390}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P2.1 & FastAPI app + the \texttt{/\allowbreak{}recordings}, \texttt{/\allowbreak{}segments}, \texttt{/\allowbreak{}review/\allowbreak{}queue} routes; revision endpoint with 409 on conflict & API tests including the conflict case \\
+P2.2 & Gradio shell with 3 tabs and theme tokens from \href{03_UI_UX_DESIGN.pdf}{03 UI/UX} §2, mounted in FastAPI & Loads at \texttt{127.\allowbreak{}0.\allowbreak{}0.\allowbreak{}1:\allowbreak{}8000} \\
+P2.3 & Import wizard + recording overview with confidence timeline & Import → align → overview with no CLI \\
+P2.4 & Segment reviewer: pre-filled text, flags, boundary nudging with slice re-render, approve \& next, history/restore & A reviewer can complete 20 segments using only the keyboard \\
+P2.5 & Hotkey JS layer & All keys in the §4.5 table work \\
+P2.6 & Language span tagging (P1 priority; may slip to P6) & Spans persist per revision \\
+P2.7 & \textbf{Measure throughput} on one real recording: minutes of review per audio minute vs. the old type-from-scratch UI & Recorded in \texttt{docs/\allowbreak{}experiments/\allowbreak{}E2\_\allowbreak{}review\_\allowbreak{}speed.\allowbreak{}md}; target ≥ 3× faster \\
+\end{longtable}
+
+\textbf{Labelling track (parallel, starts at the end of P2):} review enough recordings to build \textbf{test\_v1 ≈ 3 h (≥ 15 recordings, stratified)}, \textbf{dev\_v1 ≈ 2--3 h (≥ 10 recordings)}, and \textbf{train ≥ 20 h} for v1. Review the test/dev recordings first; they matter most and must be the most carefully checked.
+
+\hypertarget{phase-3-datasets--zero-shot-baselines-5-days}{%
+\section{Phase 3: Datasets + zero-shot baselines (≈5 days)}\label{phase-3-datasets--zero-shot-baselines-5-days}}
+
+Goal: know where we stand before training anything. This is the most instructive phase for learning the process.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P3.1 & \texttt{datasets/\allowbreak{}build.\allowbreak{}py}: filter spec, grouped split, frozen \texttt{test\_\allowbreak{}v1}, sha256, invariants 4--7 & Tests for leakage and consent enforcement \\
+P3.2 & \texttt{datasets/\allowbreak{}export.\allowbreak{}py}: audiofolder export + dataset card & \texttt{load\_\allowbreak{}dataset("audiofolder",\allowbreak{} .\allowbreak{}.\allowbreak{}.\allowbreak{})} loads it on Kaggle \\
+P3.3 & \texttt{evaluation/\allowbreak{}normalizer.\allowbreak{}py} + \texttt{metrics.\allowbreak{}py} (WER, CER, per-language, switch-point, hallucination) with hand-computed tests & 100\% test coverage on metric functions \\
+P3.4 & \texttt{inference/\allowbreak{}engine.\allowbreak{}py} (faster-whisper) + register the stock models as zero-shot baselines & \texttt{whisper-\allowbreak{}small}, \texttt{whisper-\allowbreak{}medium} and \texttt{large-\allowbreak{}v3-\allowbreak{}turbo} are registered \\
+P3.5 & \textbf{Experiment E3 (zero-shot):} evaluate each stock model on dev with language \texttt{sw}, \texttt{en} and auto & A table in \texttt{docs/\allowbreak{}experiments/\allowbreak{}E3\_\allowbreak{}zero\_\allowbreak{}shot.\allowbreak{}md} with an error analysis of 30 worst segments (translation? hallucination? spelling of hybrids?) \\
+\end{longtable}
+
+\hypertarget{phase-4-fine-tune-v1-on-kaggle-6-days-gpu-quota-bound}{%
+\section{Phase 4: Fine-tune v1 on Kaggle (≈6 days, GPU-quota bound)}\label{phase-4-fine-tune-v1-on-kaggle-6-days-gpu-quota-bound}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.449}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P4.1 & \texttt{finetune/\allowbreak{}whisper\_\allowbreak{}train.\allowbreak{}py}: HF \texttt{Seq2SeqTrainer}, config YAML, fixed \texttt{<|\allowbreak{}sw|\allowbreak{}>} token, SpecAugment, non-speech samples, public-data mixture with weights, resume support, \texttt{run\_\allowbreak{}manifest.\allowbreak{}json} & Dry run on 50 samples on CPU completes 5 steps \\
+P4.2 & Kaggle notebook \texttt{notebooks/\allowbreak{}kaggle/\allowbreak{}finetune\_\allowbreak{}whisper.\allowbreak{}ipynb} (thin wrapper) + a private dataset upload of the source package & Runs end to end on a T4 \\
+P4.3 & \textbf{Experiment E4:} whisper-small full fine-tune, in-domain only vs. in-domain + public mixture & Dev WER for both; the winner is kept \\
+P4.4 & \textbf{Experiment E5:} language token \texttt{sw} vs \texttt{en} vs none (on the E4 winner, 1.5k steps each) & Decision recorded \\
+P4.5 & Register + CT2 int8 convert + evaluate on test\_v1 & \texttt{whisper-\allowbreak{}small-\allowbreak{}kct-\allowbreak{}v1} has a test report; \textbf{gate:} clean test WER ≤ 20\% or a documented plan for what to change \\
+P4.6 & (Learning track, optional) \texttt{finetune/\allowbreak{}w2vbert\_\allowbreak{}ctc\_\allowbreak{}train.\allowbreak{}py} + a KenLM 4-gram trained on approved train text & Comparison row in the evaluation table \\
+\end{longtable}
+
+\hypertarget{phase-5-transcribe-service-8-days-can-overlap-with-p4}{%
+\section{Phase 5: Transcribe service (≈8 days; can overlap with P4)}\label{phase-5-transcribe-service-8-days-can-overlap-with-p4}}
+
+Goal: the v1 product surface.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.532}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.366}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P5.1 & \texttt{inference/\allowbreak{}vad.\allowbreak{}py} (Silero), \texttt{longform.\allowbreak{}py} (windowing ≤ 30 s), \texttt{guards.\allowbreak{}py} (no-speech, compression ratio, n-gram loop) & A 10 min music-only file produces ≤ 10 words \\
+P5.2 & \texttt{transcribe} job with incremental segment writes and progress/ETA & A 1 h file on a 4-core CPU finishes with RTF ≤ 0.5 \\
+P5.3 & Transcribe tab: upload, jobs list, editor with autosave, low-confidence highlighting & Manual walkthrough of a 20 min file \\
+P5.4 & Exports TXT/SRT/VTT/JSON (+ DOCX P1); edited text wins over raw output & Golden-file tests for each format \\
+P5.5 & Model registry screen, promotion gate, hot reload & Promoting v1 switches Transcribe without a restart \\
+P5.6 & Packaging: \texttt{Dockerfile} (CPU), \texttt{make run}, a first-run setup checklist (ffmpeg, model weights) & Fresh machine to a working app in \textless{} 15 min following the README \\
+\end{longtable}
+
+\textbf{v1 release = end of P5.} A working prototype: upload, transcribe, edit and export, with a fine-tuned model and a test report.
+
+\hypertarget{phase-6-feedback-loop--model-v2-10-days}{%
+\section{Phase 6: Feedback loop + model v2 (≈10 days)}\label{phase-6-feedback-loop--model-v2-10-days}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.102}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.546}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.352}}@{}}
+\toprule\noalign{}
+ID & Task & Acceptance \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+P6.1 & ``Promote to corpus'' from Transcribe (consent-checked, edited segments only) & Invariant tests pass \\
+P6.2 & VAD-only import for untranscribed recordings + model pre-fill & Flow B works end to end \\
+P6.3 & Active-learning priority from model uncertainty; weekly batch job & The queue orders by uncertainty \\
+P6.4 & \textbf{Domain eval sets:} ≥ 1 h each of TV and church audio, reviewed, stored as \texttt{external} test sets & Per-domain WER in reports \\
+P6.5 & \textbf{Experiment E6:} whisper-large-v3-turbo with LoRA (r=32, attention + FFN) vs. v1 & Promoted only if it passes the gate; RTF is checked on CPU \\
+P6.6 & Learning curve plot: test WER vs. training hours across snapshots & \texttt{docs/\allowbreak{}experiments/\allowbreak{}E6\_\allowbreak{}learning\_\allowbreak{}curve.\allowbreak{}md} \\
+P6.7 & Optional: pyannote diarization for Speaker 1/2 labels in the Transcribe output & Behind a feature flag \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\hypertarget{definition-of-done-every-task}{%
+\section{Definition of done (every task)}\label{definition-of-done-every-task}}
+
+\begin{itemize}
+\tightlist
+\item
+  Code under \texttt{src/\allowbreak{}transcribe/\allowbreak{}…} with type hints. Unit tests are added, and CI is green.
+\item
+  No change to reviewer text by any automated path (invariant 3 test stays green).
+\item
+  Any new metric or experiment result is written to \texttt{docs/\allowbreak{}experiments/\allowbreak{}} with the dataset name and model name.
+\item
+  The README/docs are updated when a command or flow changes.
+\end{itemize}
+
+\hypertarget{experiment-log-template-docsexperimentsexx_namemd}{%
+\section{\texorpdfstring{Experiment log template (\texttt{docs/experiments/EXX\_name.md})}{Experiment log template (docs/experiments/EXX\_name.md)}}\label{experiment-log-template-docsexperimentsexx_namemd}}
+
+\begin{lstlisting}
+# EXX: <question>
+Date · dataset snapshot + sha · model(s) · code commit · Kaggle notebook version
+## Hypothesis
+## Setup (what changed vs baseline)
+## Results (table: WER / CER / switch-point / halluc / RTF, by domain & flag)
+## Error analysis (10–30 worst segments, categorised)
+## Decision
+\end{lstlisting}
+
+\hypertarget{risks-to-the-schedule}{%
+\section{Risks to the schedule}\label{risks-to-the-schedule}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.337}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.120}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.542}}@{}}
+\toprule\noalign{}
+Risk & Early signal & Response \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+The aligner struggles on noisy or overlapping recordings & P1.7 precision \textless{} 70\% & Lower θ, lean on VAD fallback for those recordings, prioritise clean recordings for v1 \\
+Review is slower than expected & P2.7 \textless{} 2× speed-up & Enable spot-check batch approval for segments with confidence \textgreater{} 0.9 \\
+Kaggle quota exhausted & Experiments queue up & Reduce to whisper-small only; shorter runs (2k steps); drop E5 \\
+v1 test WER far above 20\% & P4.5 & Error analysis first: label noise (fix data), translation (E5), hallucination (more non-speech samples), accent (more data). Do not jump to bigger models until the category is known \\
+Gradio limits the reviewer UX & P2.4 feedback & Custom Gradio component for the waveform only \\
+\end{longtable}
+
+\hypertarget{immediate-next-steps}{%
+\section{Immediate next steps}\label{immediate-next-steps}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  You: confirm the decisions flagged in the reply (interviewer turns, consent scope for the research audio, style-guide conventions).
+\item
+  Start Phase 0 on this branch: P0.1--P0.5 first (package, legacy move, the two bug fixes, CI).
+\item
+  You: pick the \textasciitilde10\% of recordings for \texttt{test\_\allowbreak{}v1}, spread across noise levels and code-switch density, and keep them aside from here on.
+\end{enumerate}
+\end{document}

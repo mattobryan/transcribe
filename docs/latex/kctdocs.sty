@@ -1,0 +1,130 @@
+% Shared style for the Transcribe project documents.
+% Build with XeLaTeX (see Makefile).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{kctdocs}[2026/09/23 Transcribe project document style]
+
+\RequirePackage[a4paper,margin=2.2cm,headheight=14pt]{geometry}
+\RequirePackage{fontspec}
+\setmainfont{FreeSerif}                       % Times-style serif (project typeface)
+\setsansfont{DejaVu Sans}[Scale=0.9]
+\setmonofont{DejaVu Sans Mono}[Scale=0.8]
+
+\RequirePackage[dvipsnames,table]{xcolor}
+\definecolor{kctbg}{HTML}{F4EEE5}
+\definecolor{kctsurface}{HTML}{FFFAF3}
+\definecolor{kcttext}{HTML}{2D241D}
+\definecolor{kctmuted}{HTML}{675443}
+\definecolor{kctborder}{HTML}{B99B7A}
+\definecolor{kctaccent}{HTML}{8A5A3B}
+\definecolor{kctok}{HTML}{4F7A3A}
+\definecolor{kctwarn}{HTML}{B07D1A}
+\definecolor{kctdanger}{HTML}{9C3B2E}
+\definecolor{kcten}{HTML}{2F5D8A}
+
+\RequirePackage{etoolbox}
+\RequirePackage{calc}
+\RequirePackage{array}
+\RequirePackage{longtable}
+\RequirePackage{booktabs}
+\RequirePackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\RequirePackage{float}
+\RequirePackage[font=small,labelfont=bf]{caption}
+\RequirePackage{graphicx}
+\RequirePackage{lastpage}
+\RequirePackage{fancyhdr}
+\RequirePackage{titlesec}
+\RequirePackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric}
+\RequirePackage{pgfgantt}
+\RequirePackage{listings}
+\RequirePackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=kctaccent,urlcolor=kcten,citecolor=kctaccent,
+  pdfauthor={Transcribe project}}
+
+% Paragraphs
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\setlength{\parskip}{5pt plus 1pt}
+\renewcommand{\arraystretch}{1.25}
+\AtBeginEnvironment{longtable}{\small}
+\setlength{\LTpre}{6pt}\setlength{\LTpost}{8pt}
+
+% Headings
+\titleformat{\section}{\Large\bfseries\color{kctaccent}}{\thesection}{0.6em}{}[{\color{kctborder}\titlerule}]
+\titleformat{\subsection}{\large\bfseries\color{kcttext}}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{kctmuted}}{\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{14pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+% Code listings
+\lstset{
+  basicstyle=\ttfamily\small,
+  columns=fullflexible,keepspaces=true,
+  breaklines=true,breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{kctmuted}{$\hookrightarrow$}\space},
+  frame=single,rulecolor=\color{kctborder},
+  backgroundcolor=\color{kctsurface},
+  xleftmargin=4pt,xrightmargin=4pt,framesep=4pt,
+  showstringspaces=false,
+  keywordstyle=\color{kctaccent}\bfseries,
+  commentstyle=\color{kctmuted}\itshape,
+  stringstyle=\color{kctok},
+  upquote=true,
+}
+\providecommand{\passthrough}[1]{#1}
+
+% Diagram styles
+\tikzset{
+  kbox/.style={draw=kctaccent,fill=kctsurface,rounded corners=2pt,align=center,
+    font=\small,inner sep=4pt,minimum height=0.8cm},
+  kstore/.style={kbox,cylinder,shape border rotate=90,aspect=0.15,minimum height=1cm},
+  kgroup/.style={draw=kctborder,dashed,rounded corners=4pt,inner sep=8pt},
+  kglabel/.style={font=\footnotesize\bfseries\color{kctmuted}},
+  karrow/.style={-{Stealth[length=2.2mm]},draw=kcttext,thick},
+  kdash/.style={karrow,dashed,draw=kctmuted},
+  klabel/.style={font=\scriptsize,fill=white,inner sep=1pt,align=center},
+  ktable/.style={draw=kctaccent,fill=kctsurface,font=\ttfamily\scriptsize,
+    minimum width=3.1cm,minimum height=0.55cm,rounded corners=1pt},
+  kfk/.style={-{Stealth[length=1.8mm]},draw=kctmuted},
+}
+
+% Header / footer
+\newcommand{\kctdoctitle}{}
+\newcommand{\kctdocnumber}{}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{kctmuted}\kctdocnumber\ \kctdoctitle}
+\fancyhead[R]{\small\color{kctmuted}Transcribe: Kenyan English--Kiswahili ASR}
+\fancyfoot[C]{\small\color{kctmuted}Page \thepage\ of \pageref*{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{kctborder}\leaders\hrule height \headrulewidth\hfill}}
+
+% Title block: \kcttitle{number}{title}{metadata rows "Key & Value \\"}
+\newcommand{\kcttitle}[3]{%
+  \renewcommand{\kctdocnumber}{#1}\renewcommand{\kctdoctitle}{#2}%
+  \hypersetup{pdftitle={#1 #2}}%
+  \thispagestyle{fancy}%
+  \begin{center}
+  {\color{kctmuted}\small\scshape Transcribe project documents\par}
+  \vspace{4pt}
+  {\Huge\bfseries\color{kctaccent}#2\par}
+  \vspace{2pt}
+  \ifx\relax#1\relax\else{\color{kctmuted}\large Document #1\par}\fi
+  \end{center}
+  \vspace{4pt}
+  {\small\rowcolors{1}{kctsurface}{kctbg}%
+  \begin{tabular}{@{}>{\leavevmode\bfseries\color{kctmuted}}p{0.18\textwidth}p{0.76\textwidth}@{}}
+  \toprule
+  #3
+  \bottomrule
+  \end{tabular}}%
+  \vspace{8pt}
+}
+
+% Callout for important notes
+\RequirePackage[most]{tcolorbox}
+\newtcolorbox{kctnote}{colback=kctsurface,colframe=kctaccent,boxrule=0.6pt,
+  arc=2pt,left=6pt,right=6pt,top=4pt,bottom=4pt,fontupper=\small}
+\endinput

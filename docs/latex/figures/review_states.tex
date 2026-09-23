@@ -1,0 +1,20 @@
+\begin{tikzpicture}[every node/.style={font=\small}]
+  \node[circle,fill=kcttext,minimum size=6pt,inner sep=0] (start) at (-2.6,0) {};
+  \node[kbox] (cand) at (0,0) {candidate};
+  \node[kbox] (rev)  at (4.6,0) {in\_review};
+  \node[kbox] (draft) at (4.6,3.0) {draft};
+  \node[kbox,fill=kctok!15] (appr) at (10.6,0) {approved};
+  \node[kbox,fill=kctwarn!15] (eval) at (10.6,3.0) {approved\_eval\_only};
+  \node[kbox,fill=kctdanger!15] (rej) at (10.6,-3.0) {rejected};
+  \draw[karrow] (start) -- node[klabel,above=3pt] {created by\\aligner / VAD} (cand);
+  \draw[karrow] (cand) to[bend left=18] node[klabel,above] {opened} (rev);
+  \draw[karrow] (rev) to[bend left=18] node[klabel,below] {left unsaved} (cand);
+  \draw[karrow] (rev) to[bend left=18] node[klabel,left] {save draft} (draft);
+  \draw[karrow] (draft) to[bend left=18] node[klabel,right] {reopened} (rev);
+  \draw[karrow] (rev.10) to[bend left=10] node[klabel,above=2pt,pos=0.55] {approve} (appr.170);
+  \draw[karrow] (appr.190) to[bend left=10] node[klabel,below=2pt,pos=0.45] {reopened} (rev.350);
+  \draw[karrow] (rev.40) to[bend left=10] node[klabel,sloped,above=2pt,pos=0.6] {approve with exclusion flag} (eval.200);
+  \draw[karrow] (eval.235) to[bend left=10] node[klabel,sloped,below=2pt,pos=0.4] {reopened} (rev.20);
+  \draw[karrow] (rev.340) to[bend left=10] node[klabel,sloped,above=2pt,pos=0.6] {reject} (rej.125);
+  \draw[karrow] (rej.160) to[bend left=10] node[klabel,sloped,below=2pt,pos=0.4] {reopened} (rev.320);
+\end{tikzpicture}

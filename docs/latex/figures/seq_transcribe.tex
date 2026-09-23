@@ -1,0 +1,38 @@
+\begin{tikzpicture}[font=\scriptsize]
+\draw[kctborder,dashed] (2.00,-0.4) -- (2.00,-13.50);
+\node[kbox,fill=kctbg,minimum width=2.80cm] at (2.00,-0.2) {User};
+\draw[kctborder,dashed] (6.00,-0.4) -- (6.00,-13.50);
+\node[kbox,minimum width=2.80cm] at (6.00,-0.2) {UI};
+\draw[kctborder,dashed] (10.00,-0.4) -- (10.00,-13.50);
+\node[kbox,minimum width=2.80cm] at (10.00,-0.2) {API};
+\draw[kctborder,dashed] (14.00,-0.4) -- (14.00,-13.50);
+\node[kbox,minimum width=2.80cm] at (14.00,-0.2) {Worker};
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (4.00,-1.58) {Upload file, domain, consent checkbox};
+\draw[karrow] (2.00,-1.60) -- (6.00,-1.60);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-2.18) {POST /transcriptions};
+\draw[karrow] (6.00,-2.20) -- (10.00,-2.20);
+\node[draw=kctaccent,fill=kctbg,rounded corners=2pt,text width=6.70cm,align=center,inner sep=3pt] at (10.00,-2.77) {store upload, sha256, probe duration};
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (12.00,-3.93) {job(kind=transcribe, model=production)};
+\draw[karrow] (10.00,-3.95) -- (14.00,-3.95);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-4.53) {job id};
+\draw[kdash] (10.00,-4.55) -- (6.00,-4.55);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-5.93) {GET /transcriptions/\{id\}};
+\draw[karrow] (6.00,-5.95) -- (10.00,-5.95);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-6.83) {status, progress, ETA, segments so far};
+\draw[kdash] (10.00,-6.85) -- (6.00,-6.85);
+\draw[draw=kctborder,rounded corners=2pt] (0.1,-5.20) rectangle (15.90,-7.30);
+\node[anchor=north west,font=\scriptsize\bfseries,fill=kctbg,draw=kctborder] at (0.1,-5.20) {loop [every 2 s]};
+\node[draw=kctaccent,fill=kctbg,rounded corners=2pt,text width=6.70cm,align=center,inner sep=3pt] at (12.40,-8.07) {ffmpeg → Silero VAD → windows ≤30 s → faster-whisper → guards};
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (12.00,-9.38) {job\_segments (streamed as each window completes)};
+\draw[karrow] (14.00,-9.40) -- (10.00,-9.40);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (4.00,-9.98) {Edit segment text (autosave)};
+\draw[karrow] (2.00,-10.00) -- (6.00,-10.00);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-10.88) {PATCH /transcriptions/\{id\}/segments/\{seg\}};
+\draw[karrow] (6.00,-10.90) -- (10.00,-10.90);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (4.00,-11.48) {Export SRT};
+\draw[karrow] (2.00,-11.50) -- (6.00,-11.50);
+\node[anchor=south,text width=3.80cm,align=center,inner sep=1pt] at (8.00,-12.38) {GET /transcriptions/\{id\}/export?format=srt};
+\draw[karrow] (6.00,-12.40) -- (10.00,-12.40);
+\node[anchor=south,text width=7.80cm,align=center,inner sep=1pt] at (6.00,-12.98) {file (edited text wins over raw output)};
+\draw[kdash] (10.00,-13.00) -- (2.00,-13.00);
+\end{tikzpicture}

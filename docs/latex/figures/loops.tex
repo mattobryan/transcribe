@@ -1,0 +1,33 @@
+\begin{tikzpicture}[node distance=0.35cm and 0.45cm, every node/.style={font=\small}]
+  % Corpus loop
+  \node[kbox] (a) {Recording +\\transcript};
+  \node[kbox,right=of a] (b) {Align};
+  \node[kbox,right=of b] (c) {Segment};
+  \node[kbox,right=of c] (d) {Review};
+  \node[kbox,right=of d] (e) {Approved\\segments};
+  \foreach \s/\t in {a/b,b/c,c/d,d/e} \draw[karrow] (\s) -- (\t);
+  % Model loop
+  \node[kbox,below=1.6cm of e] (f) {Dataset\\snapshot};
+  \node[kbox,left=of f] (g) {Fine-tune\\(Kaggle)};
+  \node[kbox,left=of g] (h) {Model\\version};
+  \node[kbox,left=of h] (i) {Evaluate};
+  \node[kbox,diamond,aspect=1.8,inner sep=1pt,left=of i,font=\scriptsize] (j) {Better than\\production?};
+  \draw[karrow] (e) -- (f);
+  \foreach \s/\t in {f/g,g/h,h/i,i/j} \draw[karrow] (\s) -- (\t);
+  \draw[karrow] (j.south) -- ++(0,-0.45) -| node[klabel,pos=0.25] {no} (f.south);
+  % Use loop
+  \node[kbox,below=2.0cm of j] (k) {Promote};
+  \node[kbox,right=of k] (l) {Transcribe\\uploads};
+  \node[kbox,right=of l] (m) {User edits};
+  \node[kbox,diamond,aspect=1.8,inner sep=1pt,right=of m,font=\scriptsize] (n) {Consent\\to train?};
+  \draw[karrow] (j.west) -- ++(-0.4,0) |- node[klabel,pos=0.25] {yes} (k.west);
+  \foreach \s/\t in {k/l,l/m,m/n} \draw[karrow] (\s) -- (\t);
+  \draw[karrow] (n.east) -- ++(1.9,0) node[klabel,pos=0.3] {yes} |- ($(d.north)+(0,0.5)$) -- (d.north);
+  \draw[kdash] (k.south) -- ++(0,-0.55) -| ($(j.west)+(-1.3,0)$) node[klabel,pos=0.75,rotate=90,above=1pt] {hypotheses + disagreement priority}
+     |- ($(d.north)+(-0.3,0.95)$) -- ($(d.north)+(-0.3,0)$);
+  \begin{scope}[on background layer]
+    \node[kgroup,fit=(a)(e),label={[kglabel]north west:Corpus loop: build training data}] {};
+    \node[kgroup,fit=(f)(j),inner sep=12pt,label={[kglabel]north west:Model loop (Kaggle)}] {};
+    \node[kgroup,fit=(k)(n),label={[kglabel]south west:Use loop: transcribe}] {};
+  \end{scope}
+\end{tikzpicture}

@@ -1,0 +1,267 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{01}{Product Requirements Document (PRD)}{%
+Product & Transcribe: Kenyan English--Kiswahili code-switching transcriber \\
+Owner & Project lead (sole developer/reviewer for v1) \\
+Status & Draft v1 \\
+Related & \href{00_PROBLEM_STATEMENT.pdf}{00 Problem Statement}, \href{02_TRD.pdf}{02 TRD}, \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+\hypertarget{vision}{%
+\section{Vision}\label{vision}}
+
+Deliver one transcriber that understands how Kenyans actually speak, whether that is English, Kiswahili, or both inside a sentence or a word. It should run on ordinary hardware, and every correction a person makes should feed back into making it better.
+
+\hypertarget{users-and-personas}{%
+\section{Users and personas}\label{users-and-personas}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.279}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.255}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.467}}@{}}
+\toprule\noalign{}
+Persona & Context & Primary need \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Corpus reviewer} (you, v1) & Has audio + reviewed DOCX transcripts & Turn existing transcripts into verified training segments quickly \\
+\textbf{Model developer} (you, v1) & Learning the fine-tuning process on Kaggle & Reproducible datasets, training runs and evaluation reports to compare models \\
+\textbf{Transcriber user} (v1 internal, later external) & Media, church, research, meeting audio & Upload audio, get an accurate editable transcript, export it \\
+\textbf{Future annotator} (v2) & Additional reviewers & Clear queue, style guide, and no chance of overwriting another person\textquotesingle s work \\
+\end{longtable}
+
+\hypertarget{product-surfaces}{%
+\section{Product surfaces}\label{product-surfaces}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Transcribe:} upload audio or video, get a timestamped transcript, edit it, export it.
+\item
+  \textbf{Corpus Studio:} import recording + transcript, auto-align, review segments, build frozen datasets.
+\item
+  \textbf{Models \& Evaluation:} register fine-tuned models, run evaluations, compare versions, choose the production model.
+\end{enumerate}
+
+All three are served by one local web app (FastAPI backend + Gradio UI) that runs on CPU. Training runs in Kaggle notebooks.
+
+\hypertarget{scope}{%
+\section{Scope}\label{scope}}
+
+\hypertarget{in-scope-v1--working-prototype}{%
+\subsection{In scope (v1 = working prototype)}\label{in-scope-v1--working-prototype}}
+
+\begin{itemize}
+\tightlist
+\item
+  Transcription of English, Kiswahili, and code-switched speech including intra-word mixing, with readable output (spaces, casing, punctuation).
+\item
+  Long audio (at least 3 h per file) via VAD-based windowing.
+\item
+  Corpus Studio with forced alignment of existing transcripts, prioritised review, flags, and language span tags.
+\item
+  One fine-tuned model (Whisper-small class), trained on Kaggle and served on CPU.
+\item
+  Evaluation on a frozen, recording-level held-out test set.
+\item
+  Exports: TXT, SRT, VTT, DOCX, JSON.
+\end{itemize}
+
+\hypertarget{later-v2}{%
+\subsection{Later (v2+)}\label{later-v2}}
+
+\begin{itemize}
+\tightlist
+\item
+  A larger model (Whisper large-v3-turbo or medium via LoRA), an active-learning loop from user corrections, and a CTC comparison model.
+\item
+  Speaker diarization (who spoke when, as labels only, never identity).
+\item
+  Domain packs for TV/broadcast, church/sermon and meetings, each with its own evaluation set.
+\item
+  Multi-user review with roles and second-pass QA.
+\item
+  Containerised deployment on a small cloud VM or GPU.
+\end{itemize}
+
+\hypertarget{non-goals}{%
+\subsection{Non-goals}\label{non-goals}}
+
+Speaker identification, ethnicity inference, translation, real-time streaming in v1, and languages beyond EN/SW as transcription targets.
+
+\hypertarget{functional-requirements}{%
+\section{Functional requirements}\label{functional-requirements}}
+
+Priority: \textbf{P0} = required for v1 prototype, \textbf{P1} = v1 if time allows, \textbf{P2} = later.
+
+\hypertarget{transcribe}{%
+\subsection{Transcribe}\label{transcribe}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.804}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}@{}}
+\toprule\noalign{}
+ID & Requirement & P \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+T-1 & Upload WAV/MP3/M4A/MP4/OGG/FLAC up to 3 h; audio is decoded to 16 kHz mono internally & P0 \\
+T-2 & Transcription runs as a background job with visible progress and ETA & P0 \\
+T-3 & Output segments carry start/end timestamps and text; word timestamps are available & P0 \\
+T-4 & Output preserves code-switching as spoken: English words in English spelling, Kiswahili in Kiswahili spelling, hybrid words written as one token & P0 \\
+T-5 & Non-speech (music, silence, noise) produces no text (hallucination guard) & P0 \\
+T-6 & In-browser editor: play a segment, edit text, split/merge segments & P0 \\
+T-7 & Export TXT, SRT, VTT, JSON & P0 \\
+T-8 & Export DOCX & P1 \\
+T-9 & Low-confidence words/segments are visually highlighted & P1 \\
+T-10 & ``Promote to corpus'': edited segments can be sent to Corpus Studio as training candidates, only when the recording\textquotesingle s consent scope allows it & P1 \\
+T-11 & Speaker turns (diarization labels Speaker 1/2/\ldots) & P2 \\
+\end{longtable}
+
+\hypertarget{corpus-studio}{%
+\subsection{Corpus Studio}\label{corpus-studio}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.804}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}@{}}
+\toprule\noalign{}
+ID & Requirement & P \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+C-1 & Import a recording with its DOCX/PDF transcript, domain, and consent scope; the original files are never modified & P0 \\
+C-2 & Forced alignment of the transcript to the audio produces word timestamps and per-word confidence & P0 \\
+C-3 & Segmentation: aligned words are grouped into 2--30 s training segments split at natural pauses, never mid-word & P0 \\
+C-4 & Segments are pre-filled with aligned transcript text; the reviewer verifies rather than types & P0 \\
+C-5 & Review queue ordered by risk (low alignment confidence, unclear markers, overlap, model disagreement) & P0 \\
+C-6 & Per-segment flags: unclear, overlap, noisy, music, non-verbatim, reject & P0 \\
+C-7 & Model hypothesis shown \emph{beside} the text as a diff; it \textbf{never} replaces reviewer text automatically & P0 \\
+C-8 & Full revision history per segment; any revision can be restored & P0 \\
+C-9 & Boundary nudging (±50 ms / ±250 ms) with instant replay & P0 \\
+C-10 & Language span tagging: \texttt{en}, \texttt{sw}, \texttt{mixed} (intra-word), \texttt{luo}, \texttt{other}, \texttt{unclear} & P1 \\
+C-11 & Speaker-role filter (interviewer/respondent) configurable per dataset build, not hard-deleted & P0 \\
+C-12 & Fallback for recordings without transcripts: VAD chunks + model pre-fill & P1 \\
+C-13 & Keyboard-driven review (approve, flag, play, nudge) & P0 \\
+\end{longtable}
+
+\hypertarget{datasets-models--evaluation}{%
+\subsection{Datasets, Models \& Evaluation}\label{datasets-models--evaluation}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.804}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.098}}@{}}
+\toprule\noalign{}
+ID & Requirement & P \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+D-1 & Build a dataset snapshot from approved segments using a filter spec; the snapshot is frozen and versioned & P0 \\
+D-2 & Splits are grouped by recording (and by speaker where known); the test set is frozen across versions & P0 \\
+D-3 & Export a snapshot as a Hugging Face \texttt{datasets}-compatible package for upload as a private Kaggle Dataset & P0 \\
+D-4 & Kaggle notebook trains from a snapshot and outputs model + training log + dataset hash & P0 \\
+D-5 & Register a model version and convert it to CTranslate2 int8 for CPU serving & P0 \\
+D-6 & Evaluation report: WER, CER, per-language WER, switch-point error, hallucination rate, RTF; results broken down by domain and flag & P0 \\
+D-7 & Side-by-side comparison of two model versions on the same test set & P1 \\
+D-8 & Zero-shot baseline of stock models is recorded before any fine-tuning & P0 \\
+\end{longtable}
+
+\hypertarget{non-functional-requirements}{%
+\section{Non-functional requirements}\label{non-functional-requirements}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.143}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.857}}@{}}
+\toprule\noalign{}
+Area & Requirement \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Performance & CPU inference RTF ≤ 0.5 with the v1 model on a 4-core laptop (1 h audio in ≤ 30 min) \\
+Accuracy & See §7 \\
+Reliability & Jobs survive app restarts (DB-backed queue); review saves are atomic; no data loss on crash \\
+Privacy & Audio stays local by default. Uploads to Kaggle use \textbf{private} datasets only, and only for recordings whose consent scope includes \texttt{training} \\
+Reproducibility & Every model links to a dataset snapshot hash, base model, config, and notebook version \\
+Portability & Runs on Windows and Linux with Python 3.10--3.11 and ffmpeg \\
+Usability & A trained reviewer verifies 1 h of pre-aligned audio in ≤ 1.5 h \\
+\end{longtable}
+
+\hypertarget{success-metrics}{%
+\section{Success metrics}\label{success-metrics}}
+
+Word error rate is measured on the frozen \textbf{clean} test subset (single speaker, no overlap, low noise) after text normalisation. The metrics are defined in the \href{02_TRD.pdf}{TRD}.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.414}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.164}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.207}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.216}}@{}}
+\toprule\noalign{}
+Metric & Baseline & v1 target & Stretch \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+WER, clean held-out & measure zero-shot & ≤ 20\% & ≤ 10\% (``90\% correct'') \\
+WER, noisy/overlap subset & measure & reported, no gate & ≤ 30\% \\
+Switch-point error rate & measure & ≤ 1.5× clean WER & ≤ clean WER \\
+Hallucination rate (words emitted on non-speech) & measure & \textless{} 1 word/min of non-speech & \textasciitilde0 \\
+CPU RTF & -- & ≤ 0.5 & ≤ 0.25 \\
+Review throughput & typing from scratch & ≥ 3× faster than typing & ≥ 5× \\
+\end{longtable}
+
+\textbf{Important:} the training data is interviews, while the target deployment includes TV and church audio. A model that scores 10\% on interviews can still do much worse on sermons with music and reverb. Each target domain needs a small held-out evaluation set (≥ 1 h each) before any accuracy claim is made for that domain.
+
+\hypertarget{content-and-transcription-rules-style-guide-summary}{%
+\section{Content and transcription rules (style guide summary)}\label{content-and-transcription-rules-style-guide-summary}}
+
+The full style guide lives in \texttt{docs/\allowbreak{}STYLE\_\allowbreak{}GUIDE.\allowbreak{}md} (created in Phase 0).
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Verbatim:} transcribe what was said, including code-switching and repetitions that carry meaning. Pure fillers (\emph{eh}, \emph{umm}) are dropped by default. This is a documented choice, applied the same way everywhere.
+\item
+  \textbf{Hybrid words:} one token, no hyphen, with the English stem in English spelling: \emph{nimedownload}, \emph{ameorganize}. The normaliser strips hyphens anyway, so legacy hyphenated text still scores correctly.
+\item
+  \textbf{Numbers:} source documents use digits. Training targets use words in the language actually spoken (\emph{sita} vs \emph{six}). Years default to English (\emph{twenty nineteen}), and labels use English title case (\emph{Level Five}). The aligner picks between the English and Kiswahili candidates by audio score. See \href{STYLE_GUIDE.pdf}{STYLE\_GUIDE §4}.
+\item
+  \textbf{Language marking:} italic = Kiswahili in every DOCX; hybrid words are one word with only the Kiswahili part italic (\emph{nime}download → tagged \texttt{mixed}).
+\item
+  \textbf{Unclear speech:} \texttt{[unclear]} in the source transcript. These segments are excluded from training unless the reviewer resolves them.
+\item
+  \textbf{Non-EN/SW words} (e.g. Dholuo): transcribe them as heard and tag the span \texttt{luo}/\texttt{other}.
+\item
+  \textbf{Non-verbatim source passages} (the transcriber summarised or skipped text for meaning): flag \texttt{non\_\allowbreak{}verbatim}. The segment is excluded from training until it is corrected to what was actually said.
+\end{itemize}
+
+\hypertarget{assumptions-and-risks}{%
+\section{Assumptions and risks}\label{assumptions-and-risks}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.339}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.238}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.423}}@{}}
+\toprule\noalign{}
+Risk & Impact & Mitigation \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Source transcripts are partly non-verbatim & The model learns to paraphrase or hallucinate & Alignment confidence flags mismatches; a \texttt{non\_\allowbreak{}verbatim} flag excludes them \\
+Domain shift (interviews → TV/church) & Poor real-world accuracy & Per-domain evaluation sets; add domain data in v2 \\
+Kaggle GPU quota and session limits & Slow iteration & Whisper-small first; resumable checkpoints; small experiments \\
+Whisper translating instead of transcribing code-switched speech & Wrong language in output & Fine-tune with a fixed language token on code-switched data; switch-point metric \\
+Hallucination on music/silence (churches) & Garbage text & VAD gating, non-speech training examples, decode filters \\
+Consent limits on the research audio & Legal/ethical exposure & \texttt{consent\_\allowbreak{}scope} per recording enforced at dataset build and Kaggle export \\
+Single reviewer & Throughput and bias & Risk-ordered queue; add second-pass QA in v2 \\
+\end{longtable}
+
+\hypertarget{release-plan}{%
+\section{Release plan}\label{release-plan}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.169}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.831}}@{}}
+\toprule\noalign{}
+Milestone & Contents \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+M0 Foundations & Bug fixes, DB, style guide, grouped splits \\
+M1 Corpus v1 & Alignment + review UI v2, first dataset snapshot, zero-shot baselines \\
+M2 Model v1 & Whisper-small fine-tuned on Kaggle, evaluation report \\
+M3 Prototype & Transcribe surface on CPU with exports, \textbf{v1 release} \\
+M4 Loop & Corrections → corpus, model v2, domain evaluation sets \\
+\end{longtable}
+
+See \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} for tasks and acceptance criteria.
+\end{document}

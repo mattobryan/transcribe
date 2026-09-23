@@ -1,0 +1,108 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{00}{Problem Statement}{%
+
+}
+\hypertarget{the-problem}{%
+\section{The problem}\label{the-problem}}
+
+Kenyans rarely speak ``pure'' English or ``pure'' Kiswahili. Everyday speech on TV and radio, in churches, in meetings, in interviews and on the street switches between the two:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Between sentences:} ``Tulienda kanisa jana. The sermon was about patience.''
+\item
+  \textbf{Within a sentence:} ``Nilikuwa nataka ku-apply lakini the deadline ilikuwa imepita.''
+\item
+  \textbf{Within a word:} an English stem inside Kiswahili grammar, e.g. \emph{nime-download}, \emph{ame-realize}, \emph{tuta-organize}, \emph{wanam-text}.
+\end{itemize}
+
+It also carries Kenyan English pronunciation, Sheng-influenced vocabulary, and accent effects from other first languages such as Dholuo, Luhya and Kikuyu.
+
+Off-the-shelf speech-to-text systems serve this speech poorly:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Monolingual systems} (English-only or Swahili-only) either drop the other language or force it into their own spelling (e.g. ``download'' becomes ``daunlodi'').
+\item
+  \textbf{Multilingual systems} such as stock Whisper pick one language per 30-second window. On mixed speech they tend to \emph{translate} the minority language instead of transcribing it, and they hallucinate on noise, music and silence.
+\item
+  \textbf{None of them is tuned to Kenyan pronunciation.} Word error rates on Kenyan-accented, noisy, multi-speaker audio are far higher than their published benchmarks.
+\end{enumerate}
+
+As a result, people who need Kenyan speech in text form (media houses subtitling shows, churches archiving sermons, researchers transcribing interviews, organisations minuting meetings) still transcribe by hand. That costs roughly 4--8 hours of human time per hour of audio.
+
+\hypertarget{what-we-have}{%
+\section{What we have}\label{what-we-have}}
+
+\begin{itemize}
+\tightlist
+\item
+  A large private collection of Kenyan recordings with \textbf{human-reviewed transcripts} (DOCX, sometimes PDF), transcribed at the interview level.
+\item
+  A partial pipeline in this repo: transcript parsers, energy-based VAD chunking, a Gradio review UI, and two from-scratch CNN-LSTM models (CTC and Seq2Seq) on MFCC features.
+\item
+  CPU for development and inference, and a Kaggle account for GPU training.
+\end{itemize}
+
+\hypertarget{why-the-current-pipeline-cannot-reach-the-goal}{%
+\section{Why the current pipeline cannot reach the goal}\label{why-the-current-pipeline-cannot-reach-the-goal}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.384}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.616}}@{}}
+\toprule\noalign{}
+Gap & Consequence \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+VAD chunks are not linked to transcript text & Each chunk has to be typed from scratch, so the existing reviewed transcripts are wasted \\
+From-scratch MFCC CNN-LSTM with 256 ms CTC frames & Cannot learn: most chunks have more target characters than output frames, and \texttt{zero\_\allowbreak{}infinity=\allowbreak{}True} hides the resulting zero loss \\
+Tokenizer removes spaces & Output is not readable text \\
+Random chunk-level train/test split within one recording & Evaluation results are inflated by leakage \\
+The Transcribe button overwrites the reviewer\textquotesingle s text & Breaks the rule that reviewed text is authoritative \\
+No inference service, no long-audio handling, no exports & Nothing a user outside the repo can use \\
+\end{longtable}
+
+\hypertarget{problem-statement-one-sentence}{%
+\section{Problem statement (one sentence)}\label{problem-statement-one-sentence}}
+
+\begin{quote}
+Kenyan speakers mix English and Kiswahili between sentences, within sentences and within words, and no accessible speech-to-text tool transcribes this faithfully. We will build a deployable transcriber, fine-tuned from a multilingual pretrained speech model on our own reviewed Kenyan recordings. It will produce readable, correctly spelled code-switched text from real-world audio (interviews, TV, church, meetings), and it will include a corpus workflow that turns existing human transcripts into training data with minimal manual effort.
+\end{quote}
+
+\hypertarget{success-looks-like}{%
+\section{Success looks like}\label{success-looks-like}}
+
+\begin{itemize}
+\tightlist
+\item
+  A user uploads an hour of Kenyan audio on a CPU machine and gets back a readable, timestamped, editable transcript with English words spelled as English and Kiswahili as Kiswahili. The run finishes in under the audio\textquotesingle s own duration.
+\item
+  \textbf{Clean speech:} word error rate at or below 20\% at v1 and at or below 10\% as the stretch goal (``90\% correct''). Noisy and overlapping audio is measured separately.
+\item
+  A new reviewed recording goes from DOCX + audio to approved training segments in a fraction of real time, because text is pre-aligned and the reviewer only verifies it.
+\item
+  Every model version is reproducible from a frozen dataset snapshot and a Kaggle training run.
+\end{itemize}
+
+\hypertarget{out-of-scope-for-now}{%
+\section{Out of scope (for now)}\label{out-of-scope-for-now}}
+
+\begin{itemize}
+\tightlist
+\item
+  Speaker identification, and any inference of ethnicity or tribe.
+\item
+  Transcribing languages other than English and Kiswahili. Isolated Dholuo or other words are \emph{tagged}, not modelled as a third target language.
+\item
+  Translation.
+\item
+  Real-time streaming (batch file transcription first).
+\item
+  Multi-tenant SaaS, billing, and public accounts.
+\end{itemize}
+\end{document}

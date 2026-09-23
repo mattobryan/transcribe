@@ -1,0 +1,29 @@
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \pgfdeclarelayer{edges}\pgfsetlayers{edges,main}
+  \foreach \n/\x/\y in {
+    recordings/5.2/0, test_set_recordings/0.9/0, jobs/13.8/0,
+    source_transcripts/0.9/-1.5, alignment_runs/5.2/-1.5, segments/9.5/-1.5, transcriptions/13.8/-1.5,
+    transcript_turns/0.9/-3.0, aligned_words/5.2/-3.0, segment_turns/9.5/-3.0, transcription_segments/13.8/-3.0,
+    hypotheses/5.2/-4.5, segment_revisions/9.5/-4.5, model_versions/13.8/-4.5,
+    language_spans/5.2/-6.0, dataset_items/9.5/-6.0, training_runs/13.8/-6.0,
+    eval_results/5.2/-7.5, datasets/9.5/-7.5, eval_runs/13.8/-7.5}
+    \node[ktable] (\n) at (\x,\y) {\detokenize\expandafter{\n}};
+  \begin{pgfonlayer}{edges}
+  \foreach \c/\p in {
+    test_set_recordings/recordings, source_transcripts/recordings, alignment_runs/recordings,
+    segments/recordings, transcript_turns/source_transcripts, alignment_runs/source_transcripts,
+    aligned_words/alignment_runs, aligned_words/transcript_turns, segments/alignment_runs,
+    segment_turns/segments, segment_revisions/segments,
+    hypotheses/segments, hypotheses/model_versions, language_spans/segment_revisions,
+    dataset_items/segment_revisions, dataset_items/datasets, training_runs/datasets,
+    model_versions/training_runs, eval_runs/model_versions, eval_runs/datasets,
+    transcriptions/jobs, transcriptions/model_versions,
+    transcription_segments/transcriptions, segment_revisions/hypotheses}
+    \draw[kfk] (\c) -- (\p);
+  \draw[kfk] (segment_turns.south) -- ++(0,-0.3) -| (transcript_turns.south);
+  \draw[kfk] (eval_results.south) -- ++(0,-0.35) -| (eval_runs.south);
+  \draw[kfk] (dataset_items.north east) to[out=60,in=-60] (segments.south east);
+  \draw[kfk] (eval_results.north west) to[out=150,in=-150] (segments.west);
+  \draw[kfk,dashed] (transcription_segments.west) -- node[klabel] {promoted} (segments.east);
+  \end{pgfonlayer}
+\end{tikzpicture}

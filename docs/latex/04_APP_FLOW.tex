@@ -1,0 +1,167 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{04}{Application Flow}{%
+Status & Draft v1 \\
+Related & \href{03_UI_UX_DESIGN.pdf}{03 UI/UX}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+The system has two loops that meet at the corpus:
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/loops}}
+\caption{The corpus, model and use loops meet at the review queue.}
+\end{figure}
+
+\hypertarget{flow-a-import-and-align-a-transcribed-recording}{%
+\section{Flow A: Import and align a transcribed recording}\label{flow-a-import-and-align-a-transcribed-recording}}
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/seq_import}}
+\caption{Flow A: import and align a transcribed recording.}
+\end{figure}
+
+Failure branches:
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.375}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.625}}@{}}
+\toprule\noalign{}
+Condition & Result \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Duplicate sha256 & 409 with a link to the existing recording \\
+Transcript parses to 0 turns & Wizard step 3 shows an error; the user can import without a transcript (Flow B) \\
+Alignment mean confidence \textless{} 0.3 for the whole recording & Job succeeds but the recording is flagged \texttt{alignment\_\allowbreak{}suspect} (wrong transcript attached?); the overview shows a warning and offers ``Re-align with other transcript'' or ``Fall back to VAD'' \\
+Worker crash & Heartbeat expires and the job is re-queued (max 3 attempts, then \texttt{failed}) \\
+\end{longtable}
+
+\hypertarget{flow-b-import-a-recording-without-a-transcript}{%
+\section{Flow B: Import a recording without a transcript}\label{flow-b-import-a-recording-without-a-transcript}}
+
+\texttt{POST /\allowbreak{}recordings} without a transcript enqueues \texttt{vad\_\allowbreak{}segment}: Silero VAD produces windows of ≤ 30 s, which become segments with an empty r1. If a production model exists, \texttt{hypothesize} jobs create hypotheses and r2 (\texttt{source=\allowbreak{}model\_\allowbreak{}hypothesis}, clearly labelled). The recording then enters the same review queue. Priority comes from model confidence instead of alignment confidence.
+
+\hypertarget{flow-c-review-a-segment}{%
+\section{Flow C: Review a segment}\label{flow-c-review-a-segment}}
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/review_states}}
+\caption{Flow C: segment review state machine. Every content change creates a new revision.}
+\end{figure}
+
+Each transition that changes content creates a new \texttt{segment\_\allowbreak{}revisions} row. \texttt{segments.\allowbreak{}current\_\allowbreak{}revision\_\allowbreak{}id} moves forward, and old revisions are never deleted.
+
+Sequence for ``Approve \& next'':
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  The UI sends \texttt{POST /\allowbreak{}segments/\allowbreak{}\{id\}/\allowbreak{}revisions \{base\_\allowbreak{}revision\_\allowbreak{}id,\allowbreak{} text,\allowbreak{} start\_\allowbreak{}s,\allowbreak{} end\_\allowbreak{}s,\allowbreak{} flags,\allowbreak{} spans,\allowbreak{} speaker\_\allowbreak{}label,\allowbreak{} status:\allowbreak{}"approved"\}}.
+\item
+  The API checks \texttt{base\_\allowbreak{}revision\_\allowbreak{}id =\allowbreak{}=\allowbreak{} segments.\allowbreak{}current\_\allowbreak{}revision\_\allowbreak{}id}. If it differs → 409.
+\item
+  In one transaction, the API inserts the revision, updates the segment (status, current\_revision\_id, bounds), and invalidates the cached audio slice if the bounds changed.
+\item
+  The API returns the next segment from \texttt{GET /\allowbreak{}review/\allowbreak{}queue}: ordered by \texttt{priority DESC,\allowbreak{} ordinal ASC} and skipping \texttt{approved|\allowbreak{}rejected}.
+\item
+  The UI loads it and autoplays.
+\end{enumerate}
+
+``Run model'' (R): \texttt{POST /\allowbreak{}segments/\allowbreak{}\{id\}/\allowbreak{}hypothesis} runs inline if the model is loaded (\textless{} 3 s on CPU for a ≤ 30 s clip with whisper-small int8), otherwise it enqueues a job. The result is stored in \texttt{hypotheses}. The editor text is \textbf{unchanged}. The diff and WER are displayed, and \texttt{segments.\allowbreak{}priority} is recomputed with model disagreement.
+
+\hypertarget{flow-d-build-a-dataset-snapshot-and-train-on-kaggle}{%
+\section{Flow D: Build a dataset snapshot and train on Kaggle}\label{flow-d-build-a-dataset-snapshot-and-train-on-kaggle}}
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/seq_dataset}}
+\caption{Flow D: build a dataset snapshot and train on Kaggle.}
+\end{figure}
+
+Rules:
+
+\begin{itemize}
+\tightlist
+\item
+  The test split is attached from the frozen \texttt{test\_\allowbreak{}v1} definition and is never re-sampled.
+\item
+  The worker refuses to register a model whose \texttt{run\_\allowbreak{}manifest.\allowbreak{}dataset\_\allowbreak{}sha256} is unknown. This prevents mystery models.
+\item
+  The notebook is thin: \texttt{!pip install -\allowbreak{}e /\allowbreak{}kaggle/\allowbreak{}input/\allowbreak{}transcribe-\allowbreak{}src} followed by \texttt{python -\allowbreak{}m transcribe.\allowbreak{}finetune.\allowbreak{}whisper\_\allowbreak{}train -\allowbreak{}-\allowbreak{}config .\allowbreak{}.\allowbreak{}.\allowbreak{}}, so the training code is version-controlled in this repo.
+\end{itemize}
+
+\hypertarget{flow-e-evaluate-and-promote}{%
+\section{Flow E: Evaluate and promote}\label{flow-e-evaluate-and-promote}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{POST /\allowbreak{}evaluations \{model\_\allowbreak{}id,\allowbreak{} dataset\_\allowbreak{}id,\allowbreak{} split\}} enqueues a job.
+\item
+  The worker transcribes each segment with the model (CT2 int8, the same path as production), normalises, computes metrics, and writes \texttt{eval\_\allowbreak{}runs} + \texttt{eval\_\allowbreak{}results}.
+\item
+  The report screen shows metrics and the worst segments. ``Send to review'' pushes those segments to the top of the review queue (priority = 1.0). Worst segments are often label errors, not model errors.
+\item
+  Promotion gate (enforced by the API; override needs \texttt{force=\allowbreak{}true} + a note): the candidate\textquotesingle s \textbf{test WER ≤ production test WER}, \textbf{hallucination rate is not worse by more than 10\%}, and \textbf{RTF ≤ 0.5}.
+\item
+  \texttt{POST /\allowbreak{}models/\allowbreak{}\{id\}/\allowbreak{}promote} sets \texttt{status=\allowbreak{}production}, retires the previous one, and the Transcribe service reloads the model.
+\end{enumerate}
+
+\hypertarget{flow-f-transcribe-a-file}{%
+\section{Flow F: Transcribe a file}\label{flow-f-transcribe-a-file}}
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/seq_transcribe}}
+\caption{Flow F: transcribe a file.}
+\end{figure}
+
+Optional ``Promote edits to corpus'' (only if consent was given at upload):
+
+\begin{itemize}
+\tightlist
+\item
+  Each edited job segment becomes a corpus \texttt{segment} (origin=\texttt{inference\_\allowbreak{}correction}) with r1 = the model output (\texttt{source=\allowbreak{}model\_\allowbreak{}hypothesis}) and r2 = the user\textquotesingle s edit (\texttt{source=\allowbreak{}human}, status \texttt{candidate}).
+\item
+  These enter the review queue at high priority. They are the most valuable training examples, because they are exactly where the model failed.
+\item
+  Unedited segments are \textbf{not} promoted: unverified model output must not become training data.
+\end{itemize}
+
+\hypertarget{flow-g-active-learning-cycle-v2}{%
+\section{Flow G: Active learning cycle (v2)}\label{flow-g-active-learning-cycle-v2}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Once a week, run the production model over all un-reviewed segments (recordings without transcripts, promoted jobs).
+\item
+  Priority = model uncertainty (mean token log-prob, low-confidence word count) plus disagreement with the aligned text where it exists.
+\item
+  Review the top-N segments.
+\item
+  Build a snapshot, fine-tune, evaluate, and apply the promotion gate.
+\item
+  Track learning curves: test WER vs. hours of approved data per snapshot. This data answers the question ``how much more data do we need?''.
+\end{enumerate}
+
+\hypertarget{error-handling-summary}{%
+\section{Error-handling summary}\label{error-handling-summary}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.140}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.199}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.662}}@{}}
+\toprule\noalign{}
+Where & Error & Behaviour \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Upload & Unsupported codec / corrupt & 422 with the ffmpeg message; nothing is stored \\
+Any job & Exception & \texttt{status=\allowbreak{}failed}, \texttt{error} stored, retry button; attempts ≤ 3 \\
+Review save & Stale base revision & 409, conflict banner, nothing lost \\
+Model load & CT2 files missing & The model is marked \texttt{broken}; Transcribe falls back to the previous production model with a banner \\
+Kaggle registration & Dataset hash mismatch & Registration rejected with the expected vs. found hash \\
+Disk full & Write failure & The job fails cleanly; the UI shows the storage usage panel \\
+\end{longtable}
+\end{document}

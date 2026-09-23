@@ -1,50 +1,39 @@
-# Backend Schema
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{05}{Backend Schema}{%
+Status & Draft v1 \\
+Database & SQLite 3 (WAL mode) via SQLAlchemy 2 + Alembic. Portable to PostgreSQL without schema changes (no SQLite-only types; JSON is stored as TEXT with CHECK \texttt{json\_\allowbreak{}valid}, which becomes JSONB on Postgres) \\
+Related & \href{02_TRD.pdf}{02 TRD}, \href{04_APP_FLOW.pdf}{04 App Flow} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+\hypertarget{entity-overview}{%
+\section{Entity overview}\label{entity-overview}}
 
-| | |
-|---|---|
-| Status | Draft v1 |
-| Database | SQLite 3 (WAL mode) via SQLAlchemy 2 + Alembic. Portable to PostgreSQL without schema changes (no SQLite-only types; JSON is stored as TEXT with CHECK `json_valid`, which becomes JSONB on Postgres) |
-| Related | [02 TRD](02_TRD.md), [04 App Flow](04_APP_FLOW.md) |
-
-## 1. Entity overview
-
-```mermaid
-erDiagram
-  recordings ||--o{ source_transcripts : has
-  source_transcripts ||--o{ transcript_turns : contains
-  recordings ||--o{ alignment_runs : aligned_by
-  alignment_runs ||--o{ aligned_words : produces
-  transcript_turns ||--o{ aligned_words : "word of"
-  recordings ||--o{ segments : split_into
-  segments ||--o{ segment_turns : covers
-  transcript_turns ||--o{ segment_turns : ""
-  segments ||--o{ segment_revisions : history
-  segment_revisions ||--o{ language_spans : tagged
-  segments ||--o{ hypotheses : model_output
-  model_versions ||--o{ hypotheses : ""
-  datasets ||--o{ dataset_items : contains
-  segments ||--o{ dataset_items : ""
-  segment_revisions ||--o{ dataset_items : "pinned revision"
-  datasets ||--o{ training_runs : trains
-  training_runs ||--o| model_versions : yields
-  model_versions ||--o{ eval_runs : evaluated
-  datasets ||--o{ eval_runs : on
-  eval_runs ||--o{ eval_results : per_segment
-  jobs ||--o| transcriptions : runs
-  transcriptions ||--o{ transcription_segments : has
-  model_versions ||--o{ transcriptions : used
-```
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/er}}
+\caption{Entity overview. Arrows point from the referencing table to the referenced table.}
+\end{figure}
 
 Conventions:
 
-- IDs are ULIDs stored as `TEXT` (sortable by creation time and safe to generate in either process).
-- Timestamps are ISO-8601 UTC strings in `TEXT` (`created_at`, `updated_at`).
-- Audio times are `REAL` seconds relative to the recording start.
-- Enumerations are `TEXT` columns with `CHECK` constraints; in SQLAlchemy they map to `Enum(..., native_enum=False)`.
+\begin{itemize}
+\tightlist
+\item
+  IDs are ULIDs stored as \texttt{TEXT} (sortable by creation time and safe to generate in either process).
+\item
+  Timestamps are ISO-8601 UTC strings in \texttt{TEXT} (\texttt{created\_\allowbreak{}at}, \texttt{updated\_\allowbreak{}at}).
+\item
+  Audio times are \texttt{REAL} seconds relative to the recording start.
+\item
+  Enumerations are \texttt{TEXT} columns with \texttt{CHECK} constraints; in SQLAlchemy they map to \texttt{Enum(.\allowbreak{}.\allowbreak{}.\allowbreak{},\allowbreak{} native\_\allowbreak{}enum=\allowbreak{}False)}.
+\end{itemize}
 
-## 2. DDL
+\hypertarget{ddl}{%
+\section{DDL}\label{ddl}}
 
-```sql
+\begin{lstlisting}[language=SQL]
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 
@@ -339,24 +328,38 @@ CREATE TABLE transcription_segments (
   promoted_segment_id TEXT REFERENCES segments(id),
   UNIQUE (transcription_id, ordinal)
 );
-```
+\end{lstlisting}
 
-The circular foreign key `segments.current_revision_id → segment_revisions.id` is created by Alembic with `use_alter=True`. SQLite does not enforce ALTER-added foreign keys, so the invariant is checked in the service layer and by a test.
+The circular foreign key \texttt{segments.\allowbreak{}current\_\allowbreak{}revision\_\allowbreak{}id → segment\_\allowbreak{}revisions.\allowbreak{}id} is created by Alembic with \texttt{use\_\allowbreak{}alter=\allowbreak{}True}. SQLite does not enforce ALTER-added foreign keys, so the invariant is checked in the service layer and by a test.
 
-## 3. Key invariants (enforced in the service layer and tested)
+\hypertarget{key-invariants-enforced-in-the-service-layer-and-tested}{%
+\section{Key invariants (enforced in the service layer and tested)}\label{key-invariants-enforced-in-the-service-layer-and-tested}}
 
-1. `segment_revisions` is append-only: no UPDATE or DELETE except by cascade when a recording is deleted.
-2. `segments.{start_s,end_s,status,speaker_label}` always equal those of `current_revision_id`.
-3. A `hypotheses` row never changes `segment_revisions`. Only an explicit reviewer action creates a revision with `source='model_hypothesis'`.
-4. `datasets.frozen = 1` means the dataset has no inserts, updates or deletes on `dataset_items`, and `sha256` is set.
-5. The train/dev splits contain only recordings with `consent_scope='training'`. The test split may contain `training` or `eval_only`.
-6. No `recording_id` appears in more than one split in a dataset, and no recording in `test_set_recordings` appears in train or dev of any dataset.
-7. Items with status `approved_eval_only`, or with flags `unclear`, `non_verbatim` or `overlap`, never go to train (they may go to test, tagged by flag).
-8. At most one `model_versions` row has `status='production'` (partial unique index).
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{segment\_\allowbreak{}revisions} is append-only: no UPDATE or DELETE except by cascade when a recording is deleted.
+\item
+  \texttt{segments.\allowbreak{}\{start\_\allowbreak{}s,\allowbreak{}end\_\allowbreak{}s,\allowbreak{}status,\allowbreak{}speaker\_\allowbreak{}label\}} always equal those of \texttt{current\_\allowbreak{}revision\_\allowbreak{}id}.
+\item
+  A \texttt{hypotheses} row never changes \texttt{segment\_\allowbreak{}revisions}. Only an explicit reviewer action creates a revision with \texttt{source=\allowbreak{}'model\_\allowbreak{}hypothesis'}.
+\item
+  \texttt{datasets.\allowbreak{}frozen =\allowbreak{} 1} means the dataset has no inserts, updates or deletes on \texttt{dataset\_\allowbreak{}items}, and \texttt{sha256} is set.
+\item
+  The train/dev splits contain only recordings with \texttt{consent\_\allowbreak{}scope=\allowbreak{}'training'}. The test split may contain \texttt{training} or \texttt{eval\_\allowbreak{}only}.
+\item
+  No \texttt{recording\_\allowbreak{}id} appears in more than one split in a dataset, and no recording in \texttt{test\_\allowbreak{}set\_\allowbreak{}recordings} appears in train or dev of any dataset.
+\item
+  Items with status \texttt{approved\_\allowbreak{}eval\_\allowbreak{}only}, or with flags \texttt{unclear}, \texttt{non\_\allowbreak{}verbatim} or \texttt{overlap}, never go to train (they may go to test, tagged by flag).
+\item
+  At most one \texttt{model\_\allowbreak{}versions} row has \texttt{status=\allowbreak{}'production'} (partial unique index).
+\end{enumerate}
 
-## 4. File store layout
+\hypertarget{file-store-layout}{%
+\section{File store layout}\label{file-store-layout}}
 
-```text
+\begin{lstlisting}
 data/
   transcribe.db
   store/
@@ -373,35 +376,42 @@ data/
       train/<segment_id>.wav
       dev/<segment_id>.wav
       test/<segment_id>.wav
-```
+\end{lstlisting}
 
-The existing `data/projects/<name>/{transcript.json,audio.json,chunks/}` manifests are migrated once by `python -m transcribe.db.migrate_json` (see the Implementation Plan, Phase 0).
+The existing \texttt{data/\allowbreak{}projects/\allowbreak{}<name>/\allowbreak{}\{transcript.\allowbreak{}json,\allowbreak{}audio.\allowbreak{}json,\allowbreak{}chunks/\allowbreak{}\}} manifests are migrated once by \texttt{python -\allowbreak{}m transcribe.\allowbreak{}db.\allowbreak{}migrate\_\allowbreak{}json} (see the Implementation Plan, Phase 0).
 
-## 5. Export format (Kaggle / Hugging Face)
+\hypertarget{export-format-kaggle--hugging-face}{%
+\section{Export format (Kaggle / Hugging Face)}\label{export-format-kaggle--hugging-face}}
 
-`metadata.jsonl` has one line per item and follows the `audiofolder` convention, so the export loads with `load_dataset("audiofolder", data_dir=...)`:
+\texttt{metadata.\allowbreak{}jsonl} has one line per item and follows the \texttt{audiofolder} convention, so the export loads with \texttt{load\_\allowbreak{}dataset("audiofolder",\allowbreak{} data\_\allowbreak{}dir=\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})}:
 
-```json
+\begin{lstlisting}
 {"file_name": "train/01J8Z...wav", "split": "train", "text": "Sasa mimi nilikuwa nimeapply hiyo job lakini they never called back",
  "segment_id": "01J8Z...", "revision_id": "01J90...", "recording_group": "r_7f3a",
  "domain": "interview", "duration": 11.55, "speaker_role": "respondent",
  "flags": [], "lang_spans": [[0, 26, "sw"], [27, 36, "mixed"], [37, 40, "sw"], [41, 70, "en"]]}
-```
+\end{lstlisting}
 
-- `recording_group` is a salted hash of `recording_id`, so no titles or file names leave the machine.
-- `dataset_card.md` records the dataset name, sha256, normaliser version, per-split hours, filter spec, and the consent statement.
+\begin{itemize}
+\tightlist
+\item
+  \texttt{recording\_\allowbreak{}group} is a salted hash of \texttt{recording\_\allowbreak{}id}, so no titles or file names leave the machine.
+\item
+  \texttt{dataset\_\allowbreak{}card.\allowbreak{}md} records the dataset name, sha256, normaliser version, per-split hours, filter spec, and the consent statement.
+\end{itemize}
 
-The Kaggle notebook writes `run_manifest.json`:
+The Kaggle notebook writes \texttt{run\_\allowbreak{}manifest.\allowbreak{}json}:
 
-```json
+\begin{lstlisting}
 {"dataset_name": "kct-ds-v3", "dataset_sha256": "…", "base_model": "openai/whisper-small",
  "code_commit": "…", "config": {…}, "best_step": 3500, "dev_wer": 0.231,
  "started_at": "…", "finished_at": "…", "kaggle_notebook": "user/finetune-whisper@v7"}
-```
+\end{lstlisting}
 
-## 6. Pydantic API schemas (core)
+\hypertarget{pydantic-api-schemas-core}{%
+\section{Pydantic API schemas (core)}\label{pydantic-api-schemas-core}}
 
-```python
+\begin{lstlisting}[language=Python]
 class RevisionIn(BaseModel):
     base_revision_id: str
     text: str
@@ -425,14 +435,22 @@ class DatasetIn(BaseModel):
     filter_spec: FilterSpec     # recordings, domains, statuses, exclude_flags, roles, min/max duration
     split_spec: SplitSpec       # dev_fraction, seed, group_by: Literal["recording","speaker_cluster"]
     test_set_name: str = "test_v1"
-```
+\end{lstlisting}
 
-## 7. Migration from the current JSON manifests
+\hypertarget{migration-from-the-current-json-manifests}{%
+\section{Migration from the current JSON manifests}\label{migration-from-the-current-json-manifests}}
 
-| Current (`audio.json` / `transcript.json`) | New |
-|---|---|
-| `recording_id`, `source_audio` | `recordings` (sha256 computed, original copied to store) |
-| `transcript_turns[]` | `source_transcripts` + `transcript_turns` (`text` → `text_raw`, spans kept) |
-| `segments[]` with `status=candidate` and empty transcript | Dropped. They are VAD candidates that were never reviewed, and re-running alignment gives better segments |
-| `segments[]` with `status=approved` | `segments` (origin=`vad`) + revision r1 (`source=human`, status approved) |
-| `asr_hypothesis`, `wer` | Ignored (no model existed) |
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.371}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.629}}@{}}
+\toprule\noalign{}
+Current (\texttt{audio.\allowbreak{}json} / \texttt{transcript.\allowbreak{}json}) & New \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{recording\_\allowbreak{}id}, \texttt{source\_\allowbreak{}audio} & \texttt{recordings} (sha256 computed, original copied to store) \\
+\texttt{transcript\_\allowbreak{}turns[]} & \texttt{source\_\allowbreak{}transcripts} + \texttt{transcript\_\allowbreak{}turns} (\texttt{text} → \texttt{text\_\allowbreak{}raw}, spans kept) \\
+\texttt{segments[]} with \texttt{status=\allowbreak{}candidate} and empty transcript & Dropped. They are VAD candidates that were never reviewed, and re-running alignment gives better segments \\
+\texttt{segments[]} with \texttt{status=\allowbreak{}approved} & \texttt{segments} (origin=\texttt{vad}) + revision r1 (\texttt{source=\allowbreak{}human}, status approved) \\
+\texttt{asr\_\allowbreak{}hypothesis}, \texttt{wer} & Ignored (no model existed) \\
+\end{longtable}
+\end{document}

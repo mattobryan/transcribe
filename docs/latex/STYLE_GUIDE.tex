@@ -1,0 +1,124 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{}{Transcription Style Guide}{%
+Status & v0.1: decisions confirmed; examples to be extended in Phase 0 (P0.8) \\
+Applies to & Source transcripts (DOCX), reviewer edits in Corpus Studio, and training targets \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+\hypertarget{two-layers-of-text}{%
+\section{Two layers of text}\label{two-layers-of-text}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.105}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.178}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.396}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.321}}@{}}
+\toprule\noalign{}
+Layer & Where & Numbers & Purpose \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Source text} & The DOCX transcripts & Digits (\texttt{6}, \texttt{2019}, \texttt{Level 5}) & Easy for people to write and read. Never modified by the pipeline \\
+\textbf{Spoken form} & Segment revisions → training targets & Words in the language actually spoken (\texttt{sita} or \texttt{six}, \texttt{twenty nineteen}, \texttt{Level Five}) & What the model hears and learns \\
+\textbf{Display form} & Transcribe output (optional) & Digits again, via inverse text normalisation & Readable subtitles and documents \\
+\end{longtable}
+
+The pipeline converts source text to spoken form automatically (§4). You keep writing digits in the documents.
+
+\hypertarget{language-marking-in-docx}{%
+\section{Language marking in DOCX}\label{language-marking-in-docx}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Italic = Kiswahili}; roman (upright) = English. This applies to every document.
+\item
+  \textbf{Hybrid words:} write them as \textbf{one word, no hyphen}. Italicise only the Kiswahili part if you can: \emph{nime}download, \emph{wame}organize, \emph{tuta}text\emph{iana}. The parser tags a word that is part italic and part roman as \texttt{mixed}. If splitting the formatting is too slow, italicising the whole hybrid word is acceptable; the reviewer can retag it.
+\item
+  Sheng words written with Kiswahili grammar are italic. English loanwords already absorbed into Kiswahili spelling (\emph{kompyuta}, \emph{basi}) are italic.
+\item
+  Words that are neither English nor Kiswahili (e.g. Dholuo): write them as heard and wrap them in \texttt{[luo:\allowbreak{} …]}, e.g. \texttt{[luo:\allowbreak{} ber ahinya]}.
+\end{itemize}
+
+\hypertarget{verbatim-rules}{%
+\section{Verbatim rules}\label{verbatim-rules}}
+
+\begin{itemize}
+\tightlist
+\item
+  Transcribe what was said, including repetitions that carry meaning and every code-switch.
+\item
+  Drop pure fillers (\emph{eh}, \emph{umm}, \emph{aah}) unless they carry meaning (\emph{eeh} = ``yes'').
+\item
+  Unintelligible speech: \texttt{[unclear]}. Do not guess. These segments are excluded from training until resolved.
+\item
+  Crosstalk: \texttt{[overlap]} at the start of the overlapping part.
+\item
+  Passages you paraphrased or skipped for meaning: \texttt{[nv]} \ldots{} \texttt{[/\allowbreak{}nv]} (non-verbatim). These segments are excluded from training until corrected in review.
+\end{itemize}
+
+\hypertarget{numbers}{%
+\section{Numbers}\label{numbers}}
+
+Source documents always use \textbf{digits}. The spoken form uses \textbf{words in the language actually spoken}.
+
+\hypertarget{default-language-rules-applied-automatically}{%
+\subsection{Default language rules (applied automatically)}\label{default-language-rules-applied-automatically}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.374}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.311}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.316}}@{}}
+\toprule\noalign{}
+Case & Rule & Source → spoken \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Number inside an \emph{italic} (Kiswahili) span & Kiswahili words & \emph{watu 6} → watu sita \\
+Number inside a roman (English) span & English words & 6 people → six people \\
+Year (4 digits, 1900--2099) & English words, year style & 2019 → twenty nineteen; 2005 → two thousand and five \\
+Label + number (Level, Grade, Form, Class, Chapter, Room, Route, Phase\ldots) & English words, title case & Level 5 → Level Five; Form 4 → Form Four \\
+Money & Follow the span language; the currency word stays as spoken & \emph{shilingi 500} → shilingi mia tano; 500 bob → five hundred bob \\
+Phone and ID numbers & Digit by digit, span language & 0712 → zero seven one two \\
+Time & Follow the span language & \emph{saa 3} → saa tatu; 3 pm → three pm \\
+\end{longtable}
+
+\hypertarget{why-a-rule-alone-isnt-enough-and-how-it-gets-resolved}{%
+\subsection{Why a rule alone isn\textquotesingle t enough, and how it gets resolved}\label{why-a-rule-alone-isnt-enough-and-how-it-gets-resolved}}
+
+A bare \texttt{6} can\textquotesingle t tell you whether the speaker said \emph{sita} or \emph{six}. Kenyans often say numbers, and especially years and money, in English inside Kiswahili sentences. So the pipeline doesn\textquotesingle t trust the rule blindly:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  It generates both candidates (\texttt{sita} and \texttt{six}; \texttt{twenty nineteen} and \texttt{elfu mbili kumi na tisa}).
+\item
+  The forced aligner scores each candidate against the audio, and the higher-scoring one wins.
+\item
+  If the two scores are too close, the segment gets a \texttt{number\_\allowbreak{}check} flag and the reviewer hears it and picks.
+\end{enumerate}
+
+In practice the audio decides, and the §4.1 table is only the tie-breaker.
+
+\hypertarget{kiswahili-number-words-reference}{%
+\subsection{Kiswahili number words (reference)}\label{kiswahili-number-words-reference}}
+
+1 moja · 2 mbili · 3 tatu · 4 nne · 5 tano · 6 sita · 7 saba · 8 nane · 9 tisa · 10 kumi · 11 kumi na moja · 20 ishirini · 30 thelathini · 40 arobaini · 50 hamsini · 60 sitini · 70 sabini · 80 themanini · 90 tisini · 100 mia moja · 250 mia mbili hamsini · 1,000 elfu moja · 2019 elfu mbili kumi na tisa · 1,000,000 milioni moja
+
+Noun-class agreement (\emph{watu watatu}, \emph{vitu vitatu}) is written \textbf{as spoken} by the reviewer. The automatic converter emits the bare counting form (\emph{tatu}), and the aligner or reviewer corrects it to the agreeing form.
+
+\hypertarget{other-spelling-conventions}{%
+\section{Other spelling conventions}\label{other-spelling-conventions}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.138}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.862}}@{}}
+\toprule\noalign{}
+Item & Convention \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Casing & Sentence case; proper nouns capitalised in both languages \\
+Punctuation & Normal punctuation in transcripts (Whisper learns it); ignored when scoring \\
+Contractions & As spoken: \emph{don\textquotesingle t}, \emph{I\textquotesingle m}; Kiswahili elisions as spoken (\emph{nshaenda}) \\
+Okay & \emph{okay} (not \emph{ok}, \emph{OK}, \emph{sawa} unless \emph{sawa} was said) \\
+Acronyms & Uppercase, no dots: \emph{KCSE}, \emph{NHIF}; letter-by-letter acronyms stay uppercase \\
+\end{longtable}
+\end{document}

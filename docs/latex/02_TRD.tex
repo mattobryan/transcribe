@@ -1,0 +1,404 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{02}{Technical Requirements Document (TRD)}{%
+Status & Draft v1 \\
+Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+\hypertarget{architecture-overview}{%
+\section{Architecture overview}\label{architecture-overview}}
+
+\begin{figure}[!htbp]\centering
+\resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/architecture}}
+\caption{System architecture: local CPU services and Kaggle GPU training.}
+\end{figure}
+
+Principles:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Human text is authoritative.} Model output is stored as a \emph{hypothesis} next to reviewer text and is never written over it.
+\item
+  \textbf{Immutability.} Source audio and transcripts are content-addressed (sha256) and never modified. Datasets are frozen snapshots, and model versions point to exactly one snapshot.
+\item
+  \textbf{One process model.} A single user on CPU needs no Redis or Celery. A worker process polls a jobs table in SQLite.
+\item
+  \textbf{Engines behind interfaces.} Aligner, VAD and ASR are swappable: a Protocol plus a registry, so the CTC comparison model or a larger Whisper plugs in without UI changes.
+\end{enumerate}
+
+\hypertarget{model-strategy}{%
+\section{Model strategy}\label{model-strategy}}
+
+\hypertarget{why-not-a-proper-english-model--a-proper-swahili-model-blended}{%
+\subsection{Why not ``a proper English model + a proper Swahili model, blended''}\label{why-not-a-proper-english-model--a-proper-swahili-model-blended}}
+
+This was the proposal in the requirements discussion. It does not work for Kenyan code-switching, for three reasons:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Routing needs per-word language ID before transcription.} A router (language ID → English or Swahili model) decides per segment. Switches happen mid-sentence and \emph{mid-word} (\emph{nimedownload}), below any practical language-ID granularity. Every routing error becomes a transcription error.
+\item
+  \textbf{Monolingual models cannot output the other language.} A Swahili model spells English words in Swahili orthography (\emph{daunlodi}), and an English model maps Swahili words onto English lookalikes. Merging hypotheses (ROVER-style) needs both hypotheses to contain the right word somewhere, and for intra-word switches neither does.
+\item
+  \textbf{Cost and complexity.} It needs twice the compute on CPU, two fine-tuning tracks, and a merge heuristic with no training signal.
+\end{itemize}
+
+\textbf{What we do instead:} one multilingual pretrained model whose pretraining already covered both languages, fine-tuned on Kenyan code-switched speech. The blending happens in two places where it works:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{The data mixture.} In-domain code-switched segments, plus public Kiswahili and public Kenyan-accented English, blended by sampling weights. This teaches the switch and keeps both monolingual abilities.
+\item
+  \textbf{The tokenizer.} Whisper\textquotesingle s byte-level BPE can emit any Latin string, so \emph{nime} + \emph{download} is just a token sequence. Nothing forces a single language per word.
+\end{itemize}
+
+\hypertarget{chosen-models}{%
+\subsection{Chosen models}\label{chosen-models}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.130}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.435}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.435}}@{}}
+\toprule\noalign{}
+Role & Model & Why \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{v1 production} & \texttt{openai/\allowbreak{}whisper-\allowbreak{}small} (244M), full fine-tune & Fits a Kaggle T4 in fp16. Readable output with casing and punctuation. Its 30 s window matches our segments. Mature CPU serving via faster-whisper int8. The fast iteration suits learning the process \\
+v2 candidate & \texttt{openai/\allowbreak{}whisper-\allowbreak{}large-\allowbreak{}v3-\allowbreak{}turbo} (809M, 4-layer decoder), LoRA or 8-bit optimiser & Much stronger encoder with an inference cost close to small/medium. Adopted only if it beats v1 on the frozen dev set by a meaningful margin \\
+Comparison (learning track) & \texttt{facebook/\allowbreak{}w2v-\allowbreak{}bert-\allowbreak{}2.\allowbreak{}0} + CTC head, optional KenLM trained on code-switched text & Contrasting paradigm: no hallucination, faithful verbatim output, character-level. Teaches CTC fine-tuning and LM fusion. Not production because it has no punctuation and weaker CPU tooling \\
+Aligner (not trained) & MMS-300m forced-alignment model + uroman romaniser (via \texttt{ctc-\allowbreak{}forced-\allowbreak{}aligner}, or \texttt{torchaudio} MMS\_FA pinned) & Language-agnostic: it aligns any romanised text, so mixed EN/SW transcripts align without choosing a language \\
+VAD & Silero VAD & Robust on noise and music compared with the current energy threshold. Runs on CPU in ms per window \\
+Legacy & Existing MFCC CNN-LSTM CTC/Seq2Seq & Kept under \texttt{legacy/\allowbreak{}} as an educational baseline only. Not deployable (see §2.4) \\
+\end{longtable}
+
+Uncertainty on the aligner: torchaudio has been deprecating parts of its API. The aligner sits behind an interface and its dependency is pinned, so either backend can be used.
+
+\hypertarget{whisper-fine-tuning-specifics}{%
+\subsection{Whisper fine-tuning specifics}\label{whisper-fine-tuning-specifics}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Language token:} fixed \texttt{<|\allowbreak{}sw|\allowbreak{}>} + \texttt{<|\allowbreak{}transcribe|\allowbreak{}>} + \texttt{<|\allowbreak{}notimestamps|\allowbreak{}>} for all training samples. Kenyan code-switching is predominantly Kiswahili-framed, and a fixed token removes the language-ID step at inference. \textbf{Experiment E3} compares \texttt{sw} vs \texttt{en} vs no language token on the dev set. This is a cheap and instructive ablation.
+\item
+  \textbf{Non-speech examples:} about 5\% of training samples are music/noise/silence windows with an empty target. This is the most direct fix for church and TV hallucination.
+\item
+  \textbf{Data mixture (v1):} in-domain approved segments weight 1.0. Public Kiswahili (Common Voice sw, FLEURS sw\_ke) weight about 0.3, to prevent forgetting and add speaker diversity. Kenyan-accented English (AfriSpeech-200 Kenyan subset) weight about 0.2. Licences must be checked before any commercial use (AfriSpeech is non-commercial).
+\item
+  \textbf{Hyperparameters (starting point, T4 16 GB):} fp16, lr 1e-5, warmup 500, per-device batch 16 with gradient checkpointing, effective batch 32, 3--5k steps, evaluate every 500 steps on dev WER, keep the best checkpoint. SpecAugment is on (\texttt{mask\_\allowbreak{}time\_\allowbreak{}prob=\allowbreak{}0.\allowbreak{}05}).
+\item
+  \textbf{Kaggle constraints:} a weekly GPU quota (\textasciitilde30 h) and a hard per-session limit, so we save checkpoints to \texttt{/\allowbreak{}kaggle/\allowbreak{}working} every 500 steps, the training script supports \texttt{resume\_\allowbreak{}from\_\allowbreak{}checkpoint}, and one session does one experiment.
+\end{itemize}
+
+\hypertarget{why-the-legacy-model-cannot-be-the-product}{%
+\subsection{Why the legacy model cannot be the product}\label{why-the-legacy-model-cannot-be-the-product}}
+
+\begin{itemize}
+\tightlist
+\item
+  Hop 512 at 16 kHz gives 32 ms frames, and the three pooling layers make that 256 ms per CTC output frame. A 30 s segment has about 117 frames against about 400 target characters, and CTC requires frames ≥ target length. \texttt{CTCLoss(zero\_\allowbreak{}infinity=\allowbreak{}True)} silently zeroes these losses.
+\item
+  The tokenizer removes spaces, so output cannot be readable.
+\item
+  It has no pretraining, and hundreds of hours of audio are needed before from-scratch ASR becomes competitive with a fine-tuned pretrained model.
+\end{itemize}
+
+If kept for learning, fix it with hop 160 (10 ms), 2× downsampling, a space token, and no SOS/EOS in CTC targets.
+
+\hypertarget{segment-length-policy}{%
+\section{Segment length policy}\label{segment-length-policy}}
+
+(Answers ``what chunk length?'')
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.106}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.453}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.441}}@{}}
+\toprule\noalign{}
+Parameter & Value & Reason \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Max segment & 30.0 s & Whisper\textquotesingle s encoder window is exactly 30 s; anything longer is truncated \\
+Target & 8--20 s & Enough context for the decoder; still fits CTC memory for the comparison model \\
+Min segment & 1.5 s & Shorter segments carry little context and add label noise \\
+Split points & Aligned inter-word gaps ≥ 300 ms; prefer the largest gap; prefer turn boundaries & Never cut a word; natural prosodic units \\
+Padding & 100 ms on each side, clipped to the neighbouring word midpoint & Avoids clipped onsets without leaking neighbouring words \\
+Speaker & A segment never spans a speaker turn change unless the turn is \textless{} 1.5 s & Clean targets; overlap is flagged \\
+\end{longtable}
+
+At inference, Silero VAD speech regions are merged into windows of ≤ 30 s. Windows are cut at the longest silence and overlap by 0 s (VAD-cut, so no stitching is needed).
+
+\hypertarget{corpus-pipeline}{%
+\section{Corpus pipeline}\label{corpus-pipeline}}
+
+\begin{lstlisting}
+ingest → normalise audio → parse transcript → normalise text for alignment
+→ long-form alignment → word timestamps + scores → segmentation
+→ auto-flags + priority score → review → approve → dataset snapshot
+\end{lstlisting}
+
+\hypertarget{ingest}{%
+\subsection{Ingest}\label{ingest}}
+
+\begin{itemize}
+\tightlist
+\item
+  ffmpeg decodes to a 16 kHz mono 16-bit WAV. The original file is kept byte-identical, stored at \texttt{data/\allowbreak{}store/\allowbreak{}originals/\allowbreak{}<sha256>.\allowbreak{}<ext>}.
+\item
+  The transcript is parsed by the existing \texttt{docx\_\allowbreak{}parser} / \texttt{pdf\_\allowbreak{}parser}. The speaker regex and language hints (italic → \texttt{sw}, a convention that is verified per source) are reused.
+\end{itemize}
+
+\hypertarget{text-normalisation-for-alignment-a-separate-text-never-shown-as-the-label}{%
+\subsection{Text normalisation for alignment (a separate text, never shown as the label)}\label{text-normalisation-for-alignment-a-separate-text-never-shown-as-the-label}}
+
+\begin{itemize}
+\tightlist
+\item
+  Remove bracketed annotations (\texttt{[unclear]}, \texttt{[laughs]}, \texttt{[crosstalk]}), but record their word positions for flags.
+\item
+  Lowercase, and romanise with uroman (a no-op for Latin script, but it normalises diacritics and apostrophes).
+\item
+  Numbers are verbalised (\href{STYLE_GUIDE.pdf}{STYLE\_GUIDE §4}). For each digit token the pipeline generates an English and a Kiswahili candidate (the default comes from the span language, years → English, labels → English title case). It aligns both candidates locally and keeps the one with the higher score. If the scores differ by less than a margin (initially 0.1), the word becomes the \texttt{*} wildcard and the segment is flagged \texttt{number\_\allowbreak{}check}. The chosen spoken form becomes the segment label. English uses \texttt{num2words}; Kiswahili uses a small rule-based verbaliser in \texttt{corpus/\allowbreak{}numbers\_\allowbreak{}sw.\allowbreak{}py} (the system is regular, and it gets unit tests from the style guide table).
+\item
+  Optional display ITN (words → digits) runs on Transcribe output only (P1), never on training text.
+\item
+  Keep a word-level index map \texttt{norm\_\allowbreak{}word\_\allowbreak{}i → source\_\allowbreak{}char\_\allowbreak{}span} so aligned timestamps map back onto the \textbf{original} transcript text, which becomes the segment label.
+\end{itemize}
+
+\hypertarget{long-form-alignment}{%
+\subsection{Long-form alignment}\label{long-form-alignment}}
+
+\begin{itemize}
+\tightlist
+\item
+  CTC emissions are computed over the full audio in 30 s windows with 2 s overlap, then stitched.
+\item
+  Alignment is turn-anchored: each transcript turn is aligned inside a search window around its expected position (moving anchor). This keeps the Viterbi trellis small (T × L per turn instead of per recording) and localises damage from non-verbatim passages.
+\item
+  Output per word: \texttt{start\_\allowbreak{}s}, \texttt{end\_\allowbreak{}s}, and \texttt{score} (mean frame log-posterior, turned into a 0--1 confidence).
+\item
+  A turn whose mean confidence is below θ (initially 0.5, tuned on the first reviewed recording) is flagged \texttt{low\_\allowbreak{}alignment}. That is the usual signature of a non-verbatim or missing passage.
+\end{itemize}
+
+\hypertarget{priority-score-for-the-review-queue}{%
+\subsection{Priority score for the review queue}\label{priority-score-for-the-review-queue}}
+
+\begin{lstlisting}
+priority = 0.5·(1 − alignment_conf) + 0.2·has_unclear_marker + 0.1·overlap_marker
+         + 0.2·model_disagreement (WER(aligned_text, model_hypothesis), once a model exists)
+\end{lstlisting}
+
+The review queue sorts by \texttt{priority} descending. Segments with high confidence and low disagreement can be \textbf{batch-approved after spot-checking} a random 10\%, controlled by a setting and off by default.
+
+\hypertarget{recordings-without-transcripts}{%
+\subsection{Recordings without transcripts}\label{recordings-without-transcripts}}
+
+Silero VAD splits them into ≤ 30 s chunks, the current production model pre-fills the text (stored as a hypothesis, with the reviewer text starting from a copy), and they go into the same review UI.
+
+\hypertarget{inference-pipeline}{%
+\section{Inference pipeline}\label{inference-pipeline}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Decode with ffmpeg → 16 kHz mono float32.
+\item
+  Silero VAD (threshold 0.5, min speech 250 ms, min silence 400 ms) gives speech regions.
+\item
+  Merge regions into windows of ≤ 30 s.
+\item
+  Run faster-whisper on each window: \texttt{language=\allowbreak{}"sw"}, \texttt{task=\allowbreak{}"transcribe"}, \texttt{beam\_\allowbreak{}size=\allowbreak{}5}, \texttt{condition\_\allowbreak{}on\_\allowbreak{}previous\_\allowbreak{}text=\allowbreak{}False}, \texttt{word\_\allowbreak{}timestamps=\allowbreak{}True}, \texttt{vad\_\allowbreak{}filter=\allowbreak{}False} (VAD has already been applied).
+\item
+  Guards: drop segments with \texttt{no\_\allowbreak{}speech\_\allowbreak{}prob > 0.\allowbreak{}6} and \texttt{avg\_\allowbreak{}logprob < −1.\allowbreak{}0}. Drop segments with compression ratio \textgreater{} 2.4 (repetition loops). Collapse a 3-gram repeated more than 3 times.
+\item
+  Post-processing: timestamps are offset back to absolute time, and segments are persisted as \texttt{job\_\allowbreak{}segments}.
+\item
+  Export renderers: TXT, SRT, VTT, JSON, DOCX.
+\end{enumerate}
+
+Batching: windows run sequentially, with \texttt{cpu\_\allowbreak{}threads =\allowbreak{} physical cores} and \texttt{compute\_\allowbreak{}type=\allowbreak{}"int8"}. Progress = processed audio seconds / total speech seconds.
+
+\hypertarget{service-design}{%
+\section{Service design}\label{service-design}}
+
+\hypertarget{processes}{%
+\subsection{Processes}\label{processes}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.104}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.207}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.689}}@{}}
+\toprule\noalign{}
+Process & Command & Responsibility \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{api} & \texttt{python -\allowbreak{}m transcribe.\allowbreak{}api} & FastAPI + Gradio mounted at \texttt{/\allowbreak{}}. Handles CRUD and enqueues jobs \\
+\texttt{worker} & \texttt{python -\allowbreak{}m transcribe.\allowbreak{}worker} & Polls \texttt{jobs} (\texttt{status=\allowbreak{}'queued'}), runs alignment, transcription, evaluation and export, and heartbeats \\
+\end{longtable}
+
+Both processes share SQLite in WAL mode. A job is claimed with \texttt{UPDATE jobs SET status=\allowbreak{}'running',\allowbreak{} worker\_\allowbreak{}id=\allowbreak{}? WHERE id=\allowbreak{}? AND status=\allowbreak{}'queued'}. A stale heartbeat (\textgreater{} 2 min) puts the job back in the queue.
+
+\hypertarget{rest-api-apiv1}{%
+\subsection{\texorpdfstring{REST API (\texttt{/api/v1})}{REST API (/api/v1)}}\label{rest-api-apiv1}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.103}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.271}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.626}}@{}}
+\toprule\noalign{}
+Method & Path & Purpose \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+POST & \texttt{/\allowbreak{}recordings} & Multipart upload of audio (+ transcript), domain, consent\_scope \\
+GET & \texttt{/\allowbreak{}recordings}, \texttt{/\allowbreak{}recordings/\allowbreak{}\{id\}} & List and detail, with review progress \\
+POST & \texttt{/\allowbreak{}recordings/\allowbreak{}\{id\}/\allowbreak{}align} & Enqueue alignment + segmentation \\
+GET & \texttt{/\allowbreak{}review/\allowbreak{}queue?recording\_\allowbreak{}id=\allowbreak{}\&limit=\allowbreak{}} & Next segments by priority \\
+GET & \texttt{/\allowbreak{}segments/\allowbreak{}\{id\}} & Segment + current revision + hypotheses + audio URL \\
+POST & \texttt{/\allowbreak{}segments/\allowbreak{}\{id\}/\allowbreak{}revisions} & Create a new revision (text, bounds, flags, spans, status). Rejected with 409 on version conflict \\
+POST & \texttt{/\allowbreak{}segments/\allowbreak{}\{id\}/\allowbreak{}hypothesis} & Run the model on the segment (stored as a hypothesis only) \\
+GET & \texttt{/\allowbreak{}segments/\allowbreak{}\{id\}/\allowbreak{}audio} & WAV slice (rendered on demand from the recording, cached) \\
+POST & \texttt{/\allowbreak{}datasets} & Build a snapshot from a filter spec + split spec \\
+POST & \texttt{/\allowbreak{}datasets/\allowbreak{}\{id\}/\allowbreak{}export} & Write the HF-format package for Kaggle \\
+POST & \texttt{/\allowbreak{}models} & Register a model (upload or path), enqueue CT2 conversion \\
+POST & \texttt{/\allowbreak{}models/\allowbreak{}\{id\}/\allowbreak{}promote} & Set the production model \\
+POST & \texttt{/\allowbreak{}evaluations} & Enqueue evaluation of a model on a dataset split \\
+GET & \texttt{/\allowbreak{}evaluations/\allowbreak{}\{id\}} & Metrics + per-segment results \\
+POST & \texttt{/\allowbreak{}transcriptions} & Upload a file for transcription (enqueue a job) \\
+GET & \texttt{/\allowbreak{}transcriptions/\allowbreak{}\{id\}} & Status, progress, segments \\
+PATCH & \texttt{/\allowbreak{}transcriptions/\allowbreak{}\{id\}/\allowbreak{}segments/\allowbreak{}\{seg\_\allowbreak{}id\}} & Save an edit \\
+GET & \texttt{/\allowbreak{}transcriptions/\allowbreak{}\{id\}/\allowbreak{}export?format=\allowbreak{}srt} & Download \\
+POST & \texttt{/\allowbreak{}transcriptions/\allowbreak{}\{id\}/\allowbreak{}promote} & Copy edited segments into the corpus (consent-checked) \\
+\end{longtable}
+
+Optimistic concurrency: every revision POST carries \texttt{base\_\allowbreak{}revision\_\allowbreak{}id}. A mismatch returns 409, so a second browser tab cannot overwrite silently.
+
+\hypertarget{package-layout-target}{%
+\subsection{Package layout (target)}\label{package-layout-target}}
+
+\begin{lstlisting}
+src/transcribe/
+  api/            # FastAPI app, routers, schemas (pydantic)
+  worker/         # job loop, handlers
+  db/             # SQLAlchemy models, session, Alembic migrations
+  corpus/
+    ingest.py  parsers/ (docx_parser.py, pdf_parser.py — moved from preprocessing)
+    textnorm.py  align.py  segment.py  priority.py
+  inference/
+    vad.py  engine.py (Protocol + faster-whisper impl)  longform.py  guards.py  export/
+  datasets/       # snapshot build, grouped split, HF export
+  finetune/       # whisper_train.py, w2vbert_ctc_train.py (run inside Kaggle)
+  evaluation/     # normalizer.py, metrics.py (WER/CER/switch-point/hallucination), report.py
+  ui/             # Gradio Blocks: transcribe.py, review.py, models.py, theme.py
+  legacy/         # ctc_model.py, seq2seq.py, trainer.py, data/ (unchanged behaviour)
+notebooks/kaggle/ # thin notebooks calling transcribe.finetune.*
+tests/
+\end{lstlisting}
+
+The package imports as \texttt{transcribe} (installed via \texttt{pip install -\allowbreak{}e .\allowbreak{}}). The \texttt{sys.\allowbreak{}path} / \texttt{src.\allowbreak{}} import hack is removed.
+
+\hypertarget{dependencies}{%
+\section{Dependencies}\label{dependencies}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.196}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.804}}@{}}
+\toprule\noalign{}
+Group & Packages \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+core & fastapi, uvicorn, sqlalchemy≥2, alembic, pydantic≥2, python-multipart, soundfile, numpy, ffmpeg (system) \\
+corpus & python-docx, pypdf, ctc-forced-aligner (or torchaudio pinned), uroman, torch (CPU) \\
+inference & faster-whisper, silero-vad (onnx), python-docx (export) \\
+ui & gradio≥4 \\
+eval & jiwer \\
+finetune (Kaggle only) & transformers, datasets, accelerate, evaluate, peft (v2), bitsandbytes (v2) \\
+legacy & librosa, scikit-learn, editdistance, nltk \\
+\end{longtable}
+
+Requirements are split into \texttt{requirements/\allowbreak{}\{core,\allowbreak{}corpus,\allowbreak{}inference,\allowbreak{}ui,\allowbreak{}finetune,\allowbreak{}legacy\}.\allowbreak{}txt}. Versions are pinned with upper bounds, following the current practice.
+
+\hypertarget{evaluation}{%
+\section{Evaluation}\label{evaluation}}
+
+\hypertarget{splits-answers-how-should-we-split}{%
+\subsection{Splits (answers ``how should we split?'')}\label{splits-answers-how-should-we-split}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Group by recording, never by chunk.} Chunks from one recording share speaker, microphone, room and topic, so a random chunk split leaks all of them and inflates results.
+\item
+  If a speaker appears in several recordings (the same interviewer), group by speaker cluster: all recordings of that speaker go to the same split, or that speaker is held out explicitly.
+\item
+  \textbf{Size dev/test in hours and recordings, not percentages.} Evaluation sets only need to be big enough for a stable WER, and variance comes from speakers and recordings more than from word count. Target: \textbf{test ≈ 3 h from ≥ 15 recordings, dev ≈ 2--3 h from ≥ 10 recordings}. Everything else is train. With 40 h that is about 85/7/8; as audio keeps arriving, train grows and dev/test stay fixed.
+\item
+  \textbf{Test is frozen forever} (for comparability across model versions), stratified so it contains clean and noisy, low and high code-switch density, and each domain available. Dev is used for checkpoint selection and ablations.
+\item
+  \textbf{Audio still arriving:} fix \texttt{test\_\allowbreak{}v1} and \texttt{dev\_\allowbreak{}v1} from the recordings available at the end of Phase 2, and never change them. New recordings go to train by default. A new domain or a clearly new condition (TV, church, a new region) first contributes ≈ 1 h to an \texttt{external\_\allowbreak{}<domain>} test set.
+\item
+  New recordings go to train by default. New \emph{domains} (TV, church) first get a held-out evaluation set of ≥ 1 h before any of their data goes into train.
+\item
+  Also keep FLEURS \texttt{sw\_\allowbreak{}ke} test as a forgetting check. Test-set segments are never used for anything except final reports.
+\end{itemize}
+
+\hypertarget{normaliser-versioned-normalizer_version-stored-with-each-evaluation}{%
+\subsection{\texorpdfstring{Normaliser (versioned, \texttt{normalizer\_version} stored with each evaluation)}{Normaliser (versioned, normalizer\_version stored with each evaluation)}}\label{normaliser-versioned-normalizer_version-stored-with-each-evaluation}}
+
+Lowercase. Strip punctuation except intra-word apostrophes. Remove hyphens (so \emph{nime-download} ≡ \emph{nimedownload}). Collapse whitespace. Remove bracketed annotations. Map a small table of spelling variants (e.g. \emph{ok/okay}) from the style guide. Verbalise any remaining digits with the same rules as the corpus pipeline, so digit and word outputs score the same.
+
+\hypertarget{metrics}{%
+\subsection{Metrics}\label{metrics}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.204}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.796}}@{}}
+\toprule\noalign{}
+Metric & Definition \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+WER / CER & jiwer on normalised text, micro-averaged (total errors / total reference words) \\
+Per-language WER & Using reference language spans: errors attributed to \texttt{en}, \texttt{sw} and \texttt{mixed} reference words via the jiwer alignment \\
+Switch-point error rate & Over reference words adjacent to a language change (plus all \texttt{mixed} words): the fraction misrecognised. This directly measures the code-switching capability \\
+Hallucination rate & Words emitted per minute on reference non-speech segments (the non-speech test subset) \\
+RTF & Wall time / audio duration on the reference CPU \\
+\end{longtable}
+
+Reports are broken down by domain and by flag (clean / noisy / overlap).
+
+\hypertarget{security-and-privacy}{%
+\section{Security and privacy}\label{security-and-privacy}}
+
+\begin{itemize}
+\tightlist
+\item
+  The app binds to \texttt{127.\allowbreak{}0.\allowbreak{}0.\allowbreak{}1} by default. Exposing it on a network requires setting \texttt{TRANSCRIBE\_\allowbreak{}AUTH\_\allowbreak{}TOKEN} (a bearer token middleware) in v1.
+\item
+  \texttt{consent\_\allowbreak{}scope ∈ \{training,\allowbreak{} eval\_\allowbreak{}only,\allowbreak{} transcription\_\allowbreak{}only\}} on every recording is enforced in the dataset builder (training split only from \texttt{training}), in the Kaggle export, and in ``promote to corpus''.
+\item
+  Kaggle datasets are created private. The export package contains only audio slices and text, never names from the transcript header or file paths.
+\item
+  No demographic or ethnicity fields are stored. Speaker labels are opaque (\texttt{S1}, \texttt{interviewer}).
+\item
+  Uploaded transcription files are deleted after N days (configurable) unless promoted.
+\end{itemize}
+
+\hypertarget{testing-strategy}{%
+\section{Testing strategy}\label{testing-strategy}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.110}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.890}}@{}}
+\toprule\noalign{}
+Level & What \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Unit & Text normaliser, segmenter on synthetic word timings, priority, grouped split (asserts no recording in two splits), metric functions (hand-computed cases incl. switch points), guards \\
+Integration & A 60 s synthetic fixture (TTS or public-domain clip + transcript) goes through align → segment → dataset export, all on CPU in \textless{} 2 min \\
+API & FastAPI TestClient: revision conflict (409), consent enforcement, job lifecycle \\
+Model & The Kaggle notebook prints dev WER. \texttt{evaluate} reproduces the same WER locally within ±0.5 absolute \\
+CI & GitHub Actions: ruff + pytest (unit + integration with a tiny aligner mock) on Ubuntu, Python 3.10 \\
+\end{longtable}
+\end{document}

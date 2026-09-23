@@ -1,0 +1,319 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{03}{UI/UX Design}{%
+Status & Draft v1 \\
+Stack & Gradio Blocks mounted inside FastAPI (v1). Custom React front end only if Gradio blocks a P0 requirement \\
+Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+\hypertarget{design-principles}{%
+\section{Design principles}\label{design-principles}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Verify, don\textquotesingle t type.} Every text box opens pre-filled (aligned transcript or model hypothesis). The fastest action is ``approve''.
+\item
+  \textbf{Keyboard first.} A reviewer should process a segment without touching the mouse.
+\item
+  \textbf{The model suggests, the human decides.} Model output is always visually distinct (a diff panel) and is never silently written into the editable text.
+\item
+  \textbf{One primary action per screen}, shown with the primary colour. Destructive actions are secondary and need confirmation.
+\item
+  \textbf{State is always visible.} The segment\textquotesingle s status, whether there are unsaved changes, job progress and the active model are shown on screen.
+\end{enumerate}
+
+\hypertarget{visual-language}{%
+\section{Visual language}\label{visual-language}}
+
+This keeps the earth-tone theme already chosen in \texttt{review/\allowbreak{}app.\allowbreak{}py} and formalises it as tokens.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.209}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.269}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.119}}>{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.403}}@{}}
+\toprule\noalign{}
+Token & Light & Dark & Use \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{-\allowbreak{}-\allowbreak{}bg} & \texttt{\#f4eee5} & \texttt{\#211b17} & page \\
+\texttt{-\allowbreak{}-\allowbreak{}surface} & \texttt{\#fffaf3} & \texttt{\#30261f} & cards, inputs \\
+\texttt{-\allowbreak{}-\allowbreak{}text} & \texttt{\#2d241d} & \texttt{\#f4eee5} & body \\
+\texttt{-\allowbreak{}-\allowbreak{}muted} & \texttt{\#675443} & \texttt{\#d5bda5} & secondary text, timestamps \\
+\texttt{-\allowbreak{}-\allowbreak{}border} & \texttt{\#b99b7a} & \texttt{\#806149} & dividers \\
+\texttt{-\allowbreak{}-\allowbreak{}accent} & \texttt{\#8a5a3b} & \texttt{\#b77b51} & primary buttons, focus ring \\
+\texttt{-\allowbreak{}-\allowbreak{}accent-\allowbreak{}hover} & \texttt{\#6f432d} & \texttt{\#d19669} & \\
+\texttt{-\allowbreak{}-\allowbreak{}ok} & \texttt{\#4f7a3a} & \texttt{\#8fbf6f} & approved \\
+\texttt{-\allowbreak{}-\allowbreak{}warn} & \texttt{\#b07d1a} & \texttt{\#e0b04f} & flagged, low confidence \\
+\texttt{-\allowbreak{}-\allowbreak{}danger} & \texttt{\#9c3b2e} & \texttt{\#e07a6a} & rejected, errors \\
+\texttt{-\allowbreak{}-\allowbreak{}lang-\allowbreak{}en} & \texttt{\#2f5d8a} underline & \texttt{\#7fb0e0} & language span tint \\
+\texttt{-\allowbreak{}-\allowbreak{}lang-\allowbreak{}sw} & \texttt{\#4f7a3a} underline & \texttt{\#8fbf6f} & \\
+\texttt{-\allowbreak{}-\allowbreak{}lang-\allowbreak{}mixed} & \texttt{\#8a3b7a} underline & \texttt{\#d08ac0} & \\
+\end{longtable}
+
+Typography: Times New Roman (the project\textquotesingle s choice) for UI text at 12 pt minimum. The transcript editor uses \textbf{14 pt} with a line height of 1.6, because reviewers read it for hours. Timestamps and IDs use a monospace font at 11 pt. Colour is never the only signal: flags also show an icon and a label.
+
+\hypertarget{information-architecture}{%
+\section{Information architecture}\label{information-architecture}}
+
+\begin{lstlisting}
+Top bar:  [Transcribe] [Corpus Studio] [Models & Evaluation]      active model: whisper-small-kct-v1 ●
+          |
+          |-- Transcribe
+          |     |-- New transcription (upload)
+          |     |-- Jobs list
+          |     `-- Transcript editor
+          |-- Corpus Studio
+          |     |-- Recordings list
+          |     |-- Import recording (wizard)
+          |     |-- Recording overview (alignment report)
+          |     |-- Review (segment reviewer)   <- most-used screen
+          |     `-- Datasets (build / export snapshots)
+          `-- Models & Evaluation
+                |-- Model registry
+                |-- Evaluation report
+                `-- Compare two models
+\end{lstlisting}
+
+\hypertarget{screens}{%
+\section{Screens}\label{screens}}
+
+\hypertarget{transcribe-new-transcription}{%
+\subsection{Transcribe: New transcription}\label{transcribe-new-transcription}}
+
+\begin{lstlisting}
++------------------------------------------------------------------+
+|  Drop audio or video here, or [Browse]                           |
+|  WAV MP3 M4A MP4 OGG FLAC · up to 3 h                            |
++------------------------------------------------------------------+
+|  Title  [____________________]   Domain [Interview v]            |
+|  Model  [whisper-small-kct-v1 (production) v]                    |
+|  [ ] Allow corrections to be added to training data (consent)    |
+|                                            [ Start transcription ]|
++------------------------------------------------------------------+
+\end{lstlisting}
+
+\begin{itemize}
+\tightlist
+\item
+  The consent checkbox is off by default and maps to \texttt{consent\_\allowbreak{}scope}.
+\item
+  After submitting, the user lands on the Jobs list with a progress bar: ``Transcribing 12:40 / 58:10 · ETA 18 min''.
+\end{itemize}
+
+\hypertarget{transcribe-transcript-editor}{%
+\subsection{Transcribe: Transcript editor}\label{transcribe-transcript-editor}}
+
+\begin{lstlisting}
++------------------------------------------------------------------+
+| Sermon_2026-09-14.mp3 · 58:10 · whisper-small-kct-v1   [Export v]|
++------------------------------------------------------------------+
+| ▶ ||  00:12:41 ──────────●──────────────────── 00:58:10   1.0x v |
++----------------------+-------------------------------------------+
+| 00:12:31  S?         | Leo tunataka ku-focus kwa neno la Mungu,  |
+| 00:12:38  S?         | and I want you to open your Bibles        |
+|>00:12:41             | pale Mathayo sura ya tano. [edited]       |
+| 00:12:49             | Wale wa nyuma mnasikia? ░low confidence░ |
++----------------------+-------------------------------------------+
+| Enter: play segment · Ctrl+S: save · Alt+Up/Down: prev/next      |
+| Ctrl+Shift+S: split at cursor · Ctrl+M: merge with next          |
++------------------------------------------------------------------+
+\end{lstlisting}
+
+\begin{itemize}
+\tightlist
+\item
+  Clicking a segment seeks the player there, and the current segment is highlighted during playback.
+\item
+  Low-confidence words (word probability \textless{} 0.5) get a dotted \texttt{-\allowbreak{}-\allowbreak{}warn} underline, with the probability shown in a tooltip.
+\item
+  Edited segments show an \texttt{[edited]} chip. Edits autosave after 1.5 s idle.
+\item
+  The Export menu offers TXT, SRT, VTT, DOCX, JSON, plus ``Promote edits to corpus'' when consent allows.
+\end{itemize}
+
+\hypertarget{corpus-studio-import-recording-3-step-wizard}{%
+\subsection{Corpus Studio: Import recording (3-step wizard)}\label{corpus-studio-import-recording-3-step-wizard}}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Files:} audio (required), transcript DOCX/PDF (optional).
+\item
+  \textbf{Metadata:} title, domain, recorded date, region (free text, optional), consent scope (required: \emph{training} / \emph{eval only} / \emph{transcription only}), and the language-hint convention for the DOCX (``italic = Kiswahili'' ✓).
+\item
+  \textbf{Confirm:} a parsed preview showing the first 10 turns with speaker labels, the count of turns, the count of \texttt{[unclear]} markers, and the audio duration. Pressing \textbf{Import \& align} enqueues the job.
+\end{enumerate}
+
+\hypertarget{corpus-studio-recording-overview}{%
+\subsection{Corpus Studio: Recording overview}\label{corpus-studio-recording-overview}}
+
+\begin{lstlisting}
+KSM09 · interview · 1:12:04 · consent: training
+Alignment: done · mean confidence 0.81 · 612 segments
+[████████████░░░░░░░] 402 approved · 31 flagged · 179 to review
+Low-confidence turns (likely non-verbatim):  p0142 0.31 | p0388 0.28 | ...
+Confidence timeline:  ▇▇▇▆▇▇▂▇▇▇▇▇▁▇▇▇▇▆▇  (click to jump)
+                                          [ Start reviewing ▶ ]
+\end{lstlisting}
+
+The confidence timeline shows problem regions (non-verbatim passages, music, crosstalk) at a glance.
+
+\hypertarget{corpus-studio-segment-reviewer-primary-screen}{%
+\subsection{Corpus Studio: Segment reviewer (primary screen)}\label{corpus-studio-segment-reviewer-primary-screen}}
+
+\begin{lstlisting}
++------------------------------------------------------------------+
+| KSM09 · segment 143/612 · priority 0.71 · status: candidate      |
+| Queue: [Priority v]  Filter: [All flags v]      unsaved ●        |
++------------------------------------------------------------------+
+| waveform ▁▂▅▇▆▃▂▁▂▅▇▇▅▃▁▁▂▃▅▆▅▃▂▁   00:14:02.35 → 00:14:13.90     |
+|   [◀◀ -250ms] [◀ -50ms] start [+50ms ▶]   end [◀ -50ms] [+50ms ▶]|
+|   ▶ Play (Tab)   ↻ Replay last 3s (Shift+Tab)   0.75x / 1x       |
++------------------------------------------------------------------+
+| Transcript (editable)                                     14 pt  |
+| ┌──────────────────────────────────────────────────────────────┐ |
+| │ Sasa mimi nilikuwa nimeapply hiyo job lakini they never      │ |
+| │ called back, so nikaamua tu kuanza biashara yangu.           │ |
+| └──────────────────────────────────────────────────────────────┘ |
+| Source: aligned transcript p0141–p0142 · word conf ░0.42░ "nimeapply"|
++------------------------------------------------------------------+
+| Model hypothesis (whisper-small-kct-v1)        [Run model (R)]   |
+|  Sasa mimi nilikuwa nimeapply hiyo job lakini they never         |
+|  called back so ~~nikaamua~~ **nikamua** tu kuanza biashara yangu|
+|  WER vs transcript: 7.1%   [Use hypothesis text (Ctrl+H)]        |
++------------------------------------------------------------------+
+| Flags: [U]nclear [O]verlap [N]oisy [M]usic [V]non-verbatim       |
+| Language spans (select text, then E / S / X mixed / L luo)       |
+| Speaker: interviewer ▾                                           |
++------------------------------------------------------------------+
+| [Reject (Ctrl+Del)]  [Save draft (Ctrl+S)]  [Approve & next ⏎]   |
+| History ▾  r3 you 14:02 · r2 aligner · r1 aligner                |
++------------------------------------------------------------------+
+\end{lstlisting}
+
+Behaviour:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Approve \& next} (Ctrl+Enter) saves a revision with \texttt{status=\allowbreak{}approved} and loads the next item in the queue. Tab plays the segment. The segment auto-plays on load (a setting, on by default).
+\item
+  Changing a boundary re-renders the slice and replays the last 3 s (for the end boundary) or the first 3 s (for the start boundary).
+\item
+  \textbf{Use hypothesis text} is the only way hypothesis text enters the editor. It is explicit, and it creates a revision with \texttt{source=\allowbreak{}model\_\allowbreak{}hypothesis}.
+\item
+  Flags are toggles, with the key shown in brackets. Setting \emph{Unclear} or \emph{Non-verbatim} shows an inline note: ``Excluded from training until resolved.''
+\item
+  Pressing Approve on a segment that has an active exclusion flag shows a confirmation: ``Approve for eval only?''
+\item
+  The History drawer lists revisions and offers ``Restore r2'' (which creates r4 as a copy of r2, so nothing is ever deleted).
+\item
+  A 409 conflict shows a banner: ``This segment changed in another tab. Reload / Keep mine as new revision.''
+\end{itemize}
+
+Keyboard map:
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.263}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.737}}@{}}
+\toprule\noalign{}
+Key & Action \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Tab / Shift+Tab & Play segment / replay last 3 s \\
+Ctrl+Enter & Approve \& next \\
+Ctrl+S & Save draft \\
+Ctrl+Del & Reject \\
+Alt+↑ / Alt+↓ & Previous / next in queue \\
+\texttt{[} \texttt{]} & Start −50 ms / +50 ms \\
+\texttt{\{} \texttt{\}} & End −50 ms / +50 ms \\
+Alt+U/O/N/M/V & Toggle flags \\
+Alt+E/S/X/L & Tag selected text as en / sw / mixed / luo \\
+R & Run the model on the segment \\
+Ctrl+H & Copy hypothesis into the editor \\
+\end{longtable}
+
+The shortcuts are bound with a small injected JS snippet (\texttt{gr.\allowbreak{}Blocks(js=\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})}), because Gradio has no native global hotkeys.
+
+\hypertarget{corpus-studio-datasets}{%
+\subsection{Corpus Studio: Datasets}\label{corpus-studio-datasets}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Filter builder:} recordings (multi-select), domains, consent = training (locked), status = approved, exclude flags (default: unclear, non\_verbatim, overlap), speaker roles (default: all), min/max duration.
+\item
+  \textbf{Split:} ``Use frozen test set v1'' is locked. Dev \% and seed are settable. A preview table shows each split\textquotesingle s hours, segments, recordings and code-switch density, with a leakage check ✓.
+\item
+  \textbf{Build snapshot} creates \texttt{kct-\allowbreak{}ds-\allowbreak{}v3 (frozen)}. \textbf{Export for Kaggle} produces a zip of the folder plus a README with the dataset hash.
+\end{itemize}
+
+\hypertarget{models--evaluation}{%
+\subsection{Models \& Evaluation}\label{models--evaluation}}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Registry table:} name, base model, dataset snapshot, dev WER, test WER, status (candidate/production/retired), and actions (Evaluate, Promote, Convert to CPU format).
+\item
+  \textbf{Evaluation report:} metric cards (WER, CER, switch-point, hallucination/min, RTF), a breakdown table by domain × flag, and the worst 50 segments with audio, reference/hypothesis diff, and a ``Send to review'' action.
+\item
+  \textbf{Compare:} two models on the same split, showing the per-metric delta, segments where A beats B and vice versa, and error categories (substitution en→sw and sw→en, deletions at switch points).
+\end{itemize}
+
+\hypertarget{states-and-feedback}{%
+\section{States and feedback}\label{states-and-feedback}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.244}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.756}}@{}}
+\toprule\noalign{}
+State & Treatment \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Job queued/running & Progress bar with processed/total seconds and ETA; the page can be closed \\
+Job failed & Red card with the error summary, a ``Retry'' action and the log link \\
+No production model & Transcribe is disabled with the notice: ``Register a model in Models \& Evaluation''; Review still works without ``Run model'' \\
+Empty review queue & ``All segments reviewed. Build a dataset snapshot →'' \\
+Unsaved changes & A dot in the header, and a browser \texttt{beforeunload} warning \\
+Offline aligner model missing & A setup checklist on first run (ffmpeg, aligner weights, VAD weights) \\
+\end{longtable}
+
+\hypertarget{accessibility}{%
+\section{Accessibility}\label{accessibility}}
+
+\begin{itemize}
+\tightlist
+\item
+  Every action is keyboard-accessible, and the focus ring is a 2 px \texttt{-\allowbreak{}-\allowbreak{}accent} outline.
+\item
+  Contrast is at least 4.5:1 for text in both themes (the tokens above meet this for body text on surface).
+\item
+  Audio controls have labels; screen-reader text is set on the flag toggles.
+\item
+  Playback speed runs from 0.5× to 1.5× to help with fast or accented speech.
+\end{itemize}
+
+\hypertarget{gradio-feasibility-notes}{%
+\section{Gradio feasibility notes}\label{gradio-feasibility-notes}}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.231}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.769}}@{}}
+\toprule\noalign{}
+Need & Approach \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Waveform + boundary nudging & \texttt{gr.\allowbreak{}Audio} waveform for playback; the boundaries are numeric fields with nudge buttons (slices are re-rendered server-side). No drag handles in v1 \\
+Diff rendering & \texttt{gr.\allowbreak{}HTML} with a server-side word diff (\texttt{difflib} on normalised tokens) \\
+Language span tagging & \texttt{gr.\allowbreak{}HighlightedText} for display; tagging through selection + hotkey handled by JS, which posts \texttt{(start,\allowbreak{} end,\allowbreak{} lang)} \\
+Global hotkeys & \texttt{gr.\allowbreak{}Blocks(js=\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})} keydown listener that clicks hidden buttons \\
+Multi-page & \texttt{gr.\allowbreak{}Tabs} for the three surfaces, with FastAPI serving the downloads \\
+\end{longtable}
+
+If boundary dragging or span tagging proves too clumsy in Gradio after M1, those two widgets move to a small custom component (\texttt{gradio cc}) rather than a full front-end rewrite.
+\end{document}
