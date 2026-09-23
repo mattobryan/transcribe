@@ -82,6 +82,8 @@ P2.6 & Language span tagging (P1 priority; may slip to P6) & Spans persist per r
 P2.7 & \textbf{Measure throughput} on one real recording: minutes of review per audio minute vs. the old type-from-scratch UI & Recorded in \texttt{docs/\allowbreak{}experiments/\allowbreak{}E2\_\allowbreak{}review\_\allowbreak{}speed.\allowbreak{}md}; target ≥ 3× faster \\
 \end{longtable}
 
+\textbf{Speaker grouping (before choosing test/dev):} a one-off script, \texttt{corpus/speaker\_groups.py}, embeds each recording's speakers (ECAPA-TDNN, CPU) and lists cross-recording pairs with high similarity. You confirm them, combine them with the naming convention, and the groups are stored so the dataset builder never splits a group.
+
 \textbf{Labelling track (parallel, starts at the end of P2):} review the current 11 recordings (8 h 56 min, ≈ 13--14 h of review at 1.5$\times$ real time): \textbf{test\_v1 = 2 recordings (≈ 1.5 h)} and \textbf{dev\_v1 = 1 recording (≈ 50 min)} first, then \textbf{train = 8 recordings (≈ 6.5 h)}. The long-run targets (test ≈ 3 h / ≥ 15 recordings, train ≥ 20 h) are reached as new audio arrives. Review the test/dev recordings first; they matter most and must be the most carefully checked.
 
 \hypertarget{phase-3-datasets--zero-shot-baselines-5-days}{%
