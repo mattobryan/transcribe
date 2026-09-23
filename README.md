@@ -96,6 +96,48 @@ python -m src.transcribe.script.evaluate --checkpoint checkpoints/final_model.pt
 python -m src.transcribe.script.infer --audio data/audio/sample1.wav --checkpoint checkpoints/final_model.pt
 ```
 
+## Pilot: One Recording (alignment + zero-shot Whisper)
+
+Before training anything, measure one reviewed recording: how well its DOCX transcript
+aligns to the audio, and how well stock Whisper already does on it. Everything runs on CPU
+and every stage is cached in `--out`.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-pilot.txt
+
+# Quick check first (about 10 minutes after the one-off alignment step):
+.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+  --audio "data/audio/NRCCW_ KSM09.MP3" `
+  --transcript data/audio/NRCCW_KSM09.docx `
+  --out data/pilot/NRCCW_KSM09 --languages sw --max-segments 60
+
+# Full run (all segments, Swahili / English / auto language) + review chunks:
+.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+  --audio "data/audio/NRCCW_ KSM09.MP3" `
+  --transcript data/audio/NRCCW_KSM09.docx `
+  --out data/pilot/NRCCW_KSM09 --export-review
+```
+
+The first run downloads the MMS-300m aligner (about 1.2 GB) and Whisper small (about
+0.5 GB). Add `--models small,large-v3-turbo` to compare the larger model (slower on CPU).
+Outputs in `data/pilot/NRCCW_KSM09/`:
+
+| File | Contents |
+|---|---|
+| `report.md`, `report.json` | Alignment quality, lowest-confidence turns, segment stats, WER/CER, per-language WER, switch-point errors, words emitted in untranscribed gaps, worst segments |
+| `segments.json` | Aligned training-sized segments (2 to 30 s) with flags |
+| `review_manifest.json`, `chunks/` | Pre-filled chunks for the review UI (with `--export-review`) |
+| `alignment.json`, `emissions.npy`, `asr_*.json` | Caches |
+
+Review the pre-filled chunks and measure your speed:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.transcribe.script.review --manifest data/pilot/NRCCW_KSM09/review_manifest.json
+.\.venv\Scripts\python.exe -m src.transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
+```
+
+The reports contain transcript text and numbers, not audio.
+
 ## Prepare Reviewed Long Recordings
 
 The annotation workflow starts from the complete audio and reviewed DOCX transcript. It

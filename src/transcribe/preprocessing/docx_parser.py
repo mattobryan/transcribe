@@ -23,7 +23,8 @@ def _speaker_info(label: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     if normalized in {"I", "INTERVIEWER"}:
         return "interviewer", "interviewer"
     if normalized == "R" or normalized.startswith("RESPONDENT"):
-        suffix = normalized.replace("RESPONDENT", "").strip() or None
+        suffix = normalized.replace("RESPONDENT", "").strip() if normalized != "R" else None
+        suffix = suffix or None
         return f"respondent_{suffix}" if suffix else "respondent", "respondent"
     if normalized.startswith("P"):
         return normalized, "respondent"

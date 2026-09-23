@@ -1,6 +1,7 @@
 """Small local Gradio editor for candidate audio segments."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -110,6 +111,7 @@ def save_segment(
         "unclear": bool(unclear),
         "overlap": bool(overlap),
         "review": {"status": status},
+        "reviewed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     })
     project["current_index"] = index
     hypothesis = asr_hypothesis.strip()
@@ -208,8 +210,8 @@ def transcribe_current(project: Dict[str, Any], path: str, index: int, checkpoin
     except Exception as exc:
         return (*_segment_values(project, path, internal_index),
                 f"Transcription failed: {exc}")
+    # The hypothesis is stored beside the reviewer's text and never replaces it.
     segment["asr_hypothesis"] = hypothesis
-    segment["transcript"] = hypothesis
     project["current_index"] = internal_index
     _write(path, project)
     return (*_segment_values(project, path, internal_index), "Transcription completed.")
