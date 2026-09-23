@@ -333,7 +333,11 @@ Requirements are split into \texttt{requirements/\allowbreak{}\{core,\allowbreak
 \item
   If a speaker appears in several recordings (the same interviewer), group by speaker cluster: all recordings of that speaker go to the same split, or that speaker is held out explicitly.
 \item
-  \textbf{Size dev/test in hours and recordings, not percentages.} Evaluation sets only need to be big enough for a stable WER, and variance comes from speakers and recordings more than from word count. Target: \textbf{test ≈ 3 h from ≥ 15 recordings, dev ≈ 2--3 h from ≥ 10 recordings}. Everything else is train. With 40 h that is about 85/7/8; as audio keeps arriving, train grows and dev/test stay fixed.
+  \textbf{Size dev/test in hours and recordings, not percentages.} Evaluation sets only need to be big enough for a stable WER, and variance comes from speakers and recordings more than from word count. Long-run target: \textbf{test ≈ 3 h from ≥ 15 recordings, dev ≈ 2--3 h from ≥ 10 recordings}. Everything else is train; as audio keeps arriving, train grows and dev/test stay fixed.
+\item
+  \textbf{Current corpus (v1): 11 recordings, 8 h 56 min.} test\_v1 = 2 recordings (≈ 1.5 h, 17\%), dev\_v1 = 1 recording (≈ 50 min, 10\%), train = 8 recordings (≈ 6.5 h, 73\%), including the 2 h 05 min recording. The test set is larger than dev because it is the number every model version is judged on; dev only has to rank checkpoints. With so few recordings a single test pair is noisy, so final v1 numbers are also reported as leave-two-recordings-out cross-validation over 3 folds (3 Kaggle runs), and the frozen split is kept for version-to-version comparison.
+\item
+  \textbf{Shared speakers:} if one interviewer appears in every recording, their speech is in every split. Reports then include a \emph{respondent-only} WER, which is the honest measure of generalisation to new speakers.
 \item
   \textbf{Test is frozen forever} (for comparability across model versions), stratified so it contains clean and noisy, low and high code-switch density, and each domain available. Dev is used for checkpoint selection and ablations.
 \item
