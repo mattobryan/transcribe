@@ -2,8 +2,9 @@
 
 A custom speech-to-text transcriber for English-Swahili code-switching speech patterns commonly found in Kenya.
 
-See [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md) for the complete corpus-preparation,
-chunk review, WER, training, and implementation workflow.
+**Planning documents** (problem statement, PRD, TRD, UI/UX, app flow, backend schema,
+implementation plan) are in [docs/](docs/README.md). They supersede the original
+[docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md).
 
 ## Features
 
