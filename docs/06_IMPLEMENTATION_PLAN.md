@@ -39,7 +39,7 @@ Goal: a clean base that stops the known bugs from spreading into new work.
 | P0.5 | Add pytest, ruff, and a GitHub Actions workflow (Ubuntu, Py 3.10) | CI green on the branch |
 | P0.6 | SQLAlchemy models + Alembic initial migration from [05 Backend Schema](05_BACKEND_SCHEMA.md) | `alembic upgrade head` creates all tables; invariant tests 1, 2, 8 pass |
 | P0.7 | `transcribe.db.migrate_json` imports the existing `data/projects/*` manifests | Approved segments are preserved; candidates are dropped with a count printed |
-| P0.8 | Write `docs/STYLE_GUIDE.md` (verbatim rules, hybrid words, numbers, markers, language tags) with 20 worked examples from real transcripts | Reviewed by you; referenced from the UI help |
+| P0.8 | Extend `docs/STYLE_GUIDE.md` (v0.1 drafted) (verbatim rules, hybrid words, numbers, markers, language tags) with 20 worked examples from real transcripts | Reviewed by you; referenced from the UI help |
 | P0.9 | Split requirements into `requirements/*.txt` as in the TRD §7 | Fresh venv installs `core+corpus+ui` on Windows and Linux |
 
 ## Phase 1: Alignment pipeline (≈7 days)
@@ -49,7 +49,7 @@ Goal: DOCX + audio in, pre-filled segments out.
 | ID | Task | Acceptance |
 |---|---|---|
 | P1.1 | `corpus/ingest.py`: sha256, ffmpeg normalise to 16 kHz mono, store the original | Re-importing the same file → 409 |
-| P1.2 | Move the parsers into `corpus/parsers/`; add `text_align` + `word_map` generation (`corpus/textnorm.py`) | Unit tests: annotations removed, digits → `*`, word map round-trips to the raw text |
+| P1.2 | Move the parsers into `corpus/parsers/`; add `text_align` + `word_map` generation (`corpus/textnorm.py`) | Unit tests: annotations removed, number verbalisation (EN via num2words + `numbers_sw.py`, candidates scored by the aligner, `number_check` flag on ties), word map round-trips to the raw text |
 | P1.3 | `corpus/align.py`: an `Aligner` protocol + an MMS implementation (windowed emissions, turn-anchored alignment, per-word scores) | 60 s fixture aligns with mean word boundary error < 100 ms vs. hand labels; a 1 h recording aligns on CPU in < 20 min |
 | P1.4 | `corpus/segment.py`: the TRD §3 policy (≤ 30 s, 1.5 s minimum, gap ≥ 300 ms, turn-aware, padding) | Property tests: no segment > 30 s, no word cut, full coverage of aligned words |
 | P1.5 | Auto-flags (`low_alignment`, `unclear_marker`, `overlap_marker`) + `priority.py` | Unit tests on synthetic inputs |
@@ -70,7 +70,7 @@ Goal: reviewing becomes verification, driven from the keyboard.
 | P2.6 | Language span tagging (P1 priority; may slip to P6) | Spans persist per revision |
 | P2.7 | **Measure throughput** on one real recording: minutes of review per audio minute vs. the old type-from-scratch UI | Recorded in `docs/experiments/E2_review_speed.md`; target ≥ 3× faster |
 
-**Labelling track (parallel, starts at the end of P2):** review enough recordings to build **test_v1 ≥ 2 h** (about 10% of recordings, stratified), **dev ≥ 2 h**, and **train ≥ 20 h** for v1. Review the test/dev recordings first; they matter most and must be the most carefully checked.
+**Labelling track (parallel, starts at the end of P2):** review enough recordings to build **test_v1 ≈ 3 h (≥ 15 recordings, stratified)**, **dev_v1 ≈ 2–3 h (≥ 10 recordings)**, and **train ≥ 20 h** for v1. Review the test/dev recordings first; they matter most and must be the most carefully checked.
 
 ## Phase 3: Datasets + zero-shot baselines (≈5 days)
 

@@ -9,5 +9,6 @@
 | 04 | [App Flow](04_APP_FLOW.md) | End-to-end flows, state machines, failure handling |
 | 05 | [Backend Schema](05_BACKEND_SCHEMA.md) | SQLite DDL, invariants, file store, export formats, migration |
 | 06 | [Implementation Plan](06_IMPLEMENTATION_PLAN.md) | Phases, tasks, acceptance criteria, experiments |
+| – | [Style Guide](STYLE_GUIDE.md) | Italic = Kiswahili, hybrid words, numbers (digits in documents, spoken words in training), markers |
 
 [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) describes the original VAD-chunk workflow and is kept for history. Documents 00–06 supersede it.

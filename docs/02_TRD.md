@@ -119,7 +119,8 @@ ingest → normalise audio → parse transcript → normalise text for alignment
 
 - Remove bracketed annotations (`[unclear]`, `[laughs]`, `[crosstalk]`), but record their word positions for flags.
 - Lowercase, and romanise with uroman (a no-op for Latin script, but it normalises diacritics and apostrophes).
-- Digits become the aligner's `*` wildcard token, so numbers align without verbalisation.
+- Numbers are verbalised ([STYLE_GUIDE §4](STYLE_GUIDE.md#4-numbers)). For each digit token the pipeline generates an English and a Kiswahili candidate (the default comes from the span language, years → English, labels → English title case). It aligns both candidates locally and keeps the one with the higher score. If the scores differ by less than a margin (initially 0.1), the word becomes the `*` wildcard and the segment is flagged `number_check`. The chosen spoken form becomes the segment label. English uses `num2words`; Kiswahili uses a small rule-based verbaliser in `corpus/numbers_sw.py` (the system is regular, and it gets unit tests from the style guide table).
+- Optional display ITN (words → digits) runs on Transcribe output only (P1), never on training text.
 - Keep a word-level index map `norm_word_i → source_char_span` so aligned timestamps map back onto the **original** transcript text, which becomes the segment label.
 
 ### 4.3 Long-form alignment
@@ -234,13 +235,15 @@ Requirements are split into `requirements/{core,corpus,inference,ui,finetune,leg
 
 - **Group by recording, never by chunk.** Chunks from one recording share speaker, microphone, room and topic, so a random chunk split leaks all of them and inflates results.
 - If a speaker appears in several recordings (the same interviewer), group by speaker cluster: all recordings of that speaker go to the same split, or that speaker is held out explicitly.
-- **Test ≈ 10% of recordings, frozen forever** (for comparability across model versions), stratified so it contains clean and noisy, low and high code-switch density, and each domain available. **Dev ≈ 10%**, used for checkpoint selection and ablations. Train is the rest.
+- **Size dev/test in hours and recordings, not percentages.** Evaluation sets only need to be big enough for a stable WER, and variance comes from speakers and recordings more than from word count. Target: **test ≈ 3 h from ≥ 15 recordings, dev ≈ 2–3 h from ≥ 10 recordings**. Everything else is train. With 40 h that is about 85/7/8; as audio keeps arriving, train grows and dev/test stay fixed.
+- **Test is frozen forever** (for comparability across model versions), stratified so it contains clean and noisy, low and high code-switch density, and each domain available. Dev is used for checkpoint selection and ablations.
+- **Audio still arriving:** fix `test_v1` and `dev_v1` from the recordings available at the end of Phase 2, and never change them. New recordings go to train by default. A new domain or a clearly new condition (TV, church, a new region) first contributes ≈ 1 h to an `external_<domain>` test set.
 - New recordings go to train by default. New *domains* (TV, church) first get a held-out evaluation set of ≥ 1 h before any of their data goes into train.
 - Also keep FLEURS `sw_ke` test as a forgetting check. Test-set segments are never used for anything except final reports.
 
 ### 8.2 Normaliser (versioned, `normalizer_version` stored with each evaluation)
 
-Lowercase. Strip punctuation except intra-word apostrophes. Remove hyphens (so *nime-download* ≡ *nimedownload*). Collapse whitespace. Remove bracketed annotations. Map a small table of spelling variants (e.g. *ok/okay*) from the style guide. Leave digits as-is (the style guide governs this).
+Lowercase. Strip punctuation except intra-word apostrophes. Remove hyphens (so *nime-download* ≡ *nimedownload*). Collapse whitespace. Remove bracketed annotations. Map a small table of spelling variants (e.g. *ok/okay*) from the style guide. Verbalise any remaining digits with the same rules as the corpus pipeline, so digit and word outputs score the same.
 
 ### 8.3 Metrics
 

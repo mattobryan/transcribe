@@ -135,7 +135,8 @@ The full style guide lives in `docs/STYLE_GUIDE.md` (created in Phase 0).
 
 - **Verbatim:** transcribe what was said, including code-switching and repetitions that carry meaning. Pure fillers (*eh*, *umm*) are dropped by default. This is a documented choice, applied the same way everywhere.
 - **Hybrid words:** one token, no hyphen, with the English stem in English spelling: *nimedownload*, *ameorganize*. The normaliser strips hyphens anyway, so legacy hyphenated text still scores correctly.
-- **Numbers:** digits for years, amounts and times (*2019*, *500*). Number words for small counts in running speech (*watu watatu*).
+- **Numbers:** source documents use digits. Training targets use words in the language actually spoken (*sita* vs *six*). Years default to English (*twenty nineteen*), and labels use English title case (*Level Five*). The aligner picks between the English and Kiswahili candidates by audio score. See [STYLE_GUIDE §4](STYLE_GUIDE.md#4-numbers).
+- **Language marking:** italic = Kiswahili in every DOCX; hybrid words are one word with only the Kiswahili part italic (*nime*download → tagged `mixed`).
 - **Unclear speech:** `[unclear]` in the source transcript. These segments are excluded from training unless the reviewer resolves them.
 - **Non-EN/SW words** (e.g. Dholuo): transcribe them as heard and tag the span `luo`/`other`.
 - **Non-verbatim source passages** (the transcriber summarised or skipped text for meaning): flag `non_verbatim`. The segment is excluded from training until it is corrected to what was actually said.
