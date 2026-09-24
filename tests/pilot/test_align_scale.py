@@ -33,6 +33,7 @@ def test_recovers_after_unspoken_turns():
     probs /= probs.sum(axis=1, keepdims=True)
     words = turns_to_words(turns, alphabet=LETTERS)
     reports = align_words(np.log(probs), words, lambda s: [VOCAB[c] for c in s if c in VOCAB], 0)
-    trusted = [r["confidence"] is not None and r["confidence"] >= 0.5 for r in reports]
-    assert all(t for t, s in zip(trusted, spoken) if s)
-    assert not any(t for t, s in zip(trusted, spoken) if not s)
+    placed = [r["status"] in ("aligned", "short") for r in reports]
+    # every spoken turn is placed and every unspoken anchor turn is rejected
+    assert all(p for p, s in zip(placed, spoken) if s)
+    assert not any(r["status"] == "aligned" for r, s in zip(reports, spoken) if not s)

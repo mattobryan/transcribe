@@ -27,6 +27,10 @@ class TokenSpan:
     start: int                  # first frame (inclusive)
     end: int                    # last frame (exclusive)
     logprob: float              # mean log-probability over the token's frames
+    relative: float = 1.0       # mean exp(logp[path state] - max logp in frame) over the
+                                # token's frames and the frames up to the next token where
+                                # the model hears a letter: 1.0 when the path is the model's
+                                # best guess, however noisy the audio
 
 
 def viterbi_align(logp: np.ndarray, tokens: Sequence[int], blank: int) -> Optional[List[TokenSpan]]:
@@ -47,7 +51,9 @@ def viterbi_align(logp: np.ndarray, tokens: Sequence[int], blank: int) -> Option
     neg = -1e30
     # Garbage is slightly worse than the best token so real speech frames are
     # kept by the turn's own tokens instead of being absorbed at the edges.
-    garbage = logp.max(axis=1) - GARBAGE_PENALTY
+    best = logp.max(axis=1)
+    heard = logp.argmax(axis=1) != blank    # frames where the model hears a letter
+    garbage = best - GARBAGE_PENALTY
     skip_ok = np.zeros(n_ext, dtype=bool)
     skip_ok[2:] = (ext[2:] != blank) & (ext[2:] != ext[:-2])
 
@@ -92,9 +98,14 @@ def viterbi_align(logp: np.ndarray, tokens: Sequence[int], blank: int) -> Option
             state = state - move
 
     spans: List[Optional[List[float]]] = [None] * n_tokens
+    rel_sum = np.zeros(n_tokens)
+    rel_n = np.zeros(n_tokens)
     for t, state in enumerate(path):
-        if 1 <= state <= n_ext and (state - 1) % 2 == 1:
-            k = (state - 2) // 2
+        if not 1 <= state <= n_ext:
+            continue
+        j = state - 1                       # extended index: odd = token, even = blank
+        if j % 2 == 1:
+            k = j // 2
             value = logp[t, tokens[k]]
             if spans[k] is None:
                 spans[k] = [t, t + 1, value, 1]
@@ -102,9 +113,16 @@ def viterbi_align(logp: np.ndarray, tokens: Sequence[int], blank: int) -> Option
                 spans[k][1] = t + 1
                 spans[k][2] += value
                 spans[k][3] += 1
+        elif 0 < j < n_ext - 1 and heard[t]:
+            k = j // 2 - 1                  # blank between tokens while a letter is heard
+        else:
+            continue                        # silence agreement proves nothing
+        rel_sum[k] += math.exp(logp[t, ext[j]] - best[t])
+        rel_n[k] += 1
     if any(span is None for span in spans):
         return None
-    return [TokenSpan(int(s[0]), int(s[1]), float(s[2] / s[3])) for s in spans]
+    return [TokenSpan(int(s[0]), int(s[1]), float(s[2] / s[3]), float(rel_sum[k] / rel_n[k]))
+            for k, s in enumerate(spans)]
 
 
 class Emitter:
@@ -186,13 +204,21 @@ def load_or_compute_emissions(emitter: Emitter, audio: np.ndarray, cache: Path, 
     return logp
 
 
+MIN_ANCHOR_TOKENS = 12          # shorter turns ("Mm-hmm", "Eeeh") never move the cursor
+SHORT_WINDOW_S = 20.0
+
+
 def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
                 chars_per_second: float = 14.0, trust: float = 0.5,
                 max_window_s: float = 900.0, progress=None) -> List[Dict]:
     """Align words turn by turn; fills word.start/end/score in place.
 
-    The search cursor only moves forward after a trusted turn (confidence >=
-    ``trust``). A low-confidence turn is usually text that was never spoken
+    Confidence is relative: how close each letter's posterior is to the best
+    posterior in its frames, so noisy far-field audio is not penalised while
+    text that was never spoken still scores low. The search cursor only moves
+    forward after a trusted turn (confidence >= ``trust``) that is long enough
+    to anchor the alignment; short backchannels are aligned in a narrow window
+    after the cursor and never move it. A low-confidence turn is usually text that was never spoken
     (summarised or skipped by the transcriber), so the next turn searches from
     the same cursor with a window widened by the skipped turns' expected length.
 
@@ -205,6 +231,7 @@ def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
         by_turn.setdefault(word.turn_index, []).append(word)
     cursor = 0
     pending = 0.0               # expected frames of untrusted turns since the cursor
+    since_anchor = 0.0          # expected frames of all turns since the cursor
     reports = []
     turn_ids = sorted(by_turn)
     for n, turn_index in enumerate(turn_ids):
@@ -217,44 +244,60 @@ def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
             ids.extend(word_ids)
             owners.extend([position] * len(word_ids))
         record = {"turn_index": turn_index, "speaker": turn_words[0].speaker,
-                  "n_words": len(turn_words), "status": "empty", "confidence": None}
+                  "n_words": len(turn_words), "n_tokens": len(ids),
+                  "status": "empty", "confidence": None}
         if ids:
             expected = len(ids) / chars_per_second * frames_per_second
+            anchor = len(ids) >= MIN_ANCHOR_TOKENS
             lo = max(0, cursor - int(0.5 * frames_per_second))
-            reach = max(30 * frames_per_second, 2.5 * expected) + 2.5 * pending + 10 * frames_per_second
+            if anchor:
+                reach = max(30 * frames_per_second, 2.5 * expected) + 2.5 * pending + 10 * frames_per_second
+            else:
+                reach = max(SHORT_WINDOW_S * frames_per_second, 3 * expected) + 2.5 * since_anchor
             hi = min(total, cursor + int(min(reach, max_window_s * frames_per_second)))
             if hi - lo < len(ids) * 2:
                 hi = min(total, lo + len(ids) * 3)
             spans = viterbi_align(logp[lo:hi], ids, blank)
             if spans is None:
                 record["status"] = "failed"
-                pending += expected
+                if anchor:
+                    pending += expected
             else:
                 per_word: Dict[int, List[TokenSpan]] = {}
                 for owner, span in zip(owners, spans):
                     per_word.setdefault(owner, []).append(span)
-                probs = []
+                probs, absolute = [], []
                 for position, word in enumerate(alignable):
                     word_spans = per_word[position]
                     word.start = (lo + word_spans[0].start) * FRAME_SECONDS
                     word.end = (lo + word_spans[-1].end) * FRAME_SECONDS
-                    word.score = float(np.mean([math.exp(s.logprob) for s in word_spans]))
+                    word.score = float(np.mean([s.relative for s in word_spans]))
                     probs.append(word.score)
+                    absolute.append(float(np.mean([math.exp(s.logprob) for s in word_spans])))
                 confidence = float(np.mean(probs))
-                record.update(status="aligned", confidence=confidence,
+                record.update(status="aligned" if anchor else "short", confidence=confidence,
+                              abs_confidence=float(np.mean(absolute)),
                               start=alignable[0].start, end=alignable[-1].end,
                               window=[lo * FRAME_SECONDS, hi * FRAME_SECONDS])
-                if confidence >= trust:
-                    cursor = lo + spans[-1].end
-                    pending = 0.0
+                # Short text can match by chance, so it needs more confidence.
+                required = trust + 0.3 * min(1.0, 20.0 / len(ids)) if anchor else trust
+                record["required"] = round(required, 3)
+                if confidence >= required:
+                    if anchor:
+                        cursor = lo + spans[-1].end
+                        pending = since_anchor = 0.0
                 else:
                     # Probably text that was never spoken: keep the turn's
                     # confidence for the report, but give its words no timings
                     # so they cannot become segments on someone else's audio.
                     record["status"] = "suspect"
-                    pending += expected
+                    if anchor:
+                        pending += expected
                     for word in alignable:
                         word.start = word.end = word.score = None
+        if ids and record["status"] != "aligned":
+            # Turns that did not move the cursor still take time in the audio.
+            since_anchor += expected + frames_per_second
         reports.append(record)
         if progress:
             progress(n + 1, len(turn_ids))

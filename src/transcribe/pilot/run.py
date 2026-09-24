@@ -176,14 +176,17 @@ def build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
     words = alignment["words"]
     turn_reports = alignment["turns"]
     status = Counter(t["status"] for t in turn_reports)
-    confs = [t["confidence"] for t in turn_reports if t["confidence"] is not None]
+    from .ctc_align import MIN_ANCHOR_TOKENS
+    anchors = [t for t in turn_reports if t.get("n_tokens", 0) >= MIN_ANCHOR_TOKENS]
+    shorts = [t for t in turn_reports if 0 < t.get("n_tokens", 0) < MIN_ANCHOR_TOKENS]
+    confs = [t["confidence"] for t in anchors if t["confidence"] is not None]
     aligned_words = [w for w in words if w.start is not None]
     flag_counts = Counter(flag for s in segments for flag in s["flags"])
     durations = [s["duration"] for s in segments]
     seg_seconds = sum(durations)
     clean_seconds = sum(s["duration"] for s in segments if s["segment_id"] in clean_ids)
     lang_counts = Counter(w.lang for w in words if w.norm)
-    low_turns = sorted((t for t in turn_reports if t["confidence"] is not None),
+    low_turns = sorted((t for t in anchors if t["confidence"] is not None),
                        key=lambda t: t["confidence"])[:25]
 
     report = {
@@ -203,11 +206,17 @@ def build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
             "turn_confidence_quantiles": {q: round(float(np.quantile(confs, q / 100)), 3)
                                           for q in (5, 10, 25, 50, 75, 90)} if confs else {},
             "turns_below_0_5": sum(c < 0.5 for c in confs),
+            "anchor_turns": len(anchors),
+            "short_turns": len(shorts),
+            "short_turns_trusted": sum(1 for t in shorts if (t["confidence"] or 0) >= 0.5),
+            "abs_confidence_median": round(float(np.median([t["abs_confidence"] for t in anchors
+                                                             if t.get("abs_confidence") is not None])), 3)
+            if any(t.get("abs_confidence") is not None for t in anchors) else None,
             "words_timed": len(aligned_words),
             "lowest_turns": [{
                 "turn": t["turn_index"], "turn_id": turns[t["turn_index"]].get("turn_id"),
                 "speaker": t["speaker"], "confidence": round(t["confidence"], 3),
-                "at": hms((t.get("window") or [0])[0] if t["status"] != "aligned" else t.get("start") or 0),
+                "at": hms((t.get("window") or [0])[0] if t["status"] not in ("aligned", "short") else t.get("start") or 0),
                 "status": t["status"], "text": turns[t["turn_index"]].get("text", "")[:160],
             } for t in low_turns],
         },
@@ -277,8 +286,11 @@ def render_markdown(report: Dict) -> str:
         "",
         f"- Aligner: `{a['aligner']}` · emissions {a['emission_seconds'] if a['emission_seconds'] is not None else 'cached'} s · alignment {a['alignment_seconds']} s",
         f"- Turn status: {a['turn_status']}",
-        f"- Turn confidence quantiles: {a['turn_confidence_quantiles']}",
-        f"- Turns below 0.5 confidence (likely non-verbatim, missing or misplaced): **{a['turns_below_0_5']}**",
+        f"- Anchor turns (≥ 12 letters): {a.get('anchor_turns')}; short turns: {a.get('short_turns')} "
+        f"({a.get('short_turns_trusted')} placed with confidence ≥ 0.5)",
+        f"- Anchor-turn confidence quantiles (relative to the aligner's best guess): {a['turn_confidence_quantiles']}"
+        f" · median absolute posterior {a.get('abs_confidence_median')}",
+        f"- Anchor turns below 0.5 (likely non-verbatim, missing or misplaced): **{a['turns_below_0_5']}**",
         f"- Language tags from italics: {report['transcript']['language_tags']}",
         f"- Speakers: {report['transcript']['speakers']}",
         "",

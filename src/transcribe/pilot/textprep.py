@@ -16,6 +16,7 @@ ANNOTATION = re.compile(
     r"|\((?:unclear|no speech|inaudible|crosstalk|overlap|laugh)[^)\]]*[)\]]+",
     re.IGNORECASE)
 WORD = re.compile(r"\S+")
+PARTICIPANT = re.compile(r"^P\d+[.,?!:;]*$")
 BREAK = re.compile(r"-{2,}|\u2014|\u2026")
 
 
@@ -133,6 +134,11 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
                 pending.append(next_marker[2])
                 next_marker = next(marker_iter, None)
             raw = match.group()
+            if PARTICIPANT.match(raw):
+                # "P7." stands in for a participant's name: the audio holds
+                # speech the text does not, so flag it instead of aligning it.
+                pending.append("redacted")
+                continue
             if not any(ch.isalnum() for ch in raw):
                 # Punctuation-only token: keep it with the neighbouring word.
                 if turn_words:
