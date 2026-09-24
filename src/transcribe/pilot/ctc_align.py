@@ -248,8 +248,13 @@ def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
                     cursor = lo + spans[-1].end
                     pending = 0.0
                 else:
+                    # Probably text that was never spoken: keep the turn's
+                    # confidence for the report, but give its words no timings
+                    # so they cannot become segments on someone else's audio.
                     record["status"] = "suspect"
                     pending += expected
+                    for word in alignable:
+                        word.start = word.end = word.score = None
         reports.append(record)
         if progress:
             progress(n + 1, len(turn_ids))

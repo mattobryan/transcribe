@@ -81,15 +81,16 @@ def align_stage(args, out: Path, audio: np.ndarray, turns: List[Dict]) -> Dict:
 
     log(f"Loading aligner {args.aligner} (first run downloads ~1.2 GB)")
     emitter = Emitter(args.aligner)
-    log("Computing emissions (the slow step; cached afterwards)")
+    cached = (out / "emissions.npy").exists()
+    log("Loading cached emissions" if cached else "Computing emissions (the slow step; cached afterwards)")
     started = time.perf_counter()
     logp = load_or_compute_emissions(emitter, audio, out / "emissions.npy", bar("windows"))
-    emission_seconds = time.perf_counter() - started
+    emission_seconds = None if cached else round(time.perf_counter() - started, 1)
     words = turns_to_words(turns, alphabet=emitter.alphabet)
     log(f"Aligning {len(turns)} turns / {len(words)} words")
     started = time.perf_counter()
     turn_reports = align_words(logp, words, emitter.token_ids, emitter.blank, progress=bar("turns"))
-    data = {"aligner": args.aligner, "emission_seconds": round(emission_seconds, 1),
+    data = {"aligner": args.aligner, "emission_seconds": emission_seconds,
             "alignment_seconds": round(time.perf_counter() - started, 1),
             "turns": turn_reports, "words": words}
     write_json(cache, {**data, "words": [asdict(w) for w in words]})
@@ -206,7 +207,8 @@ def build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
             "lowest_turns": [{
                 "turn": t["turn_index"], "turn_id": turns[t["turn_index"]].get("turn_id"),
                 "speaker": t["speaker"], "confidence": round(t["confidence"], 3),
-                "at": hms(t.get("start") or 0), "text": turns[t["turn_index"]].get("text", "")[:160],
+                "at": hms((t.get("window") or [0])[0] if t["status"] != "aligned" else t.get("start") or 0),
+                "status": t["status"], "text": turns[t["turn_index"]].get("text", "")[:160],
             } for t in low_turns],
         },
         "segments": {
@@ -273,14 +275,15 @@ def render_markdown(report: Dict) -> str:
         "",
         "## 1. Transcript to audio alignment",
         "",
-        f"- Aligner: `{a['aligner']}` · emissions {a['emission_seconds']} s · alignment {a['alignment_seconds']} s",
+        f"- Aligner: `{a['aligner']}` · emissions {a['emission_seconds'] if a['emission_seconds'] is not None else 'cached'} s · alignment {a['alignment_seconds']} s",
         f"- Turn status: {a['turn_status']}",
         f"- Turn confidence quantiles: {a['turn_confidence_quantiles']}",
         f"- Turns below 0.5 confidence (likely non-verbatim, missing or misplaced): **{a['turns_below_0_5']}**",
         f"- Language tags from italics: {report['transcript']['language_tags']}",
         f"- Speakers: {report['transcript']['speakers']}",
         "",
-        "Lowest-confidence turns (listen to these first):",
+        "Lowest-confidence turns (listen to these first). For suspect turns, *At* is where the aligner",
+        "started searching: the passage should be at or shortly after that time, if it was spoken at all.",
         "",
         "| Turn | Speaker | Conf | At | Text |",
         "|---|---|---|---|---|",
@@ -301,7 +304,7 @@ def render_markdown(report: Dict) -> str:
         "",
         "Clean segments only (the fair comparison). WER per language counts substitutions and deletions of reference words in that language.",
         "",
-        "| Model | Lang | WER | CER | WER en | WER sw | WER mixed | Switch-point ER | Gap words/min | RTF |",
+        "| Model | Lang | WER | CER | WER en | WER sw | WER mixed | Switch-point ER (n) | Gap words/min | RTF |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for e in report["asr"]:
@@ -309,7 +312,7 @@ def render_markdown(report: Dict) -> str:
         by = c["wer_by_lang"]
         lines.append(
             f"| {e['model']} | {e['language']} | {pct(c['wer'])} | {pct(c['cer'])} | {pct(by.get('en'))} | "
-            f"{pct(by.get('sw'))} | {pct(by.get('mixed'))} | {pct(c['switch_point_error_rate'])} | "
+            f"{pct(by.get('sw'))} | {pct(by.get('mixed'))} | {pct(c['switch_point_error_rate'])} ({c['switch_point_words']}) | "
             f"{e.get('gap_words_per_min', '–')} | {e['rtf']} |")
     lines += ["", "All evaluated segments (includes flagged ones):", "",
               "| Model | Lang | WER | CER | Segments | Ref words |", "|---|---|---|---|---|---|"]

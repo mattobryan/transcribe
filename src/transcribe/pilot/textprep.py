@@ -112,6 +112,7 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
         spans = turn.get("spans", [])
         markers = [(m.start(), m.end(), annotation_kind(m.group())) for m in ANNOTATION.finditer(text)]
         pending: List[str] = []
+        prefix = ""
         turn_words: List[Word] = []
         tokens = list(WORD.finditer(ANNOTATION.sub(lambda m: " " * len(m.group()), text)))
         marker_iter = iter(sorted(markers))
@@ -121,6 +122,14 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
                 pending.append(next_marker[2])
                 next_marker = next(marker_iter, None)
             raw = match.group()
+            if not any(ch.isalnum() for ch in raw):
+                # Punctuation-only token: keep it with the neighbouring word.
+                if turn_words:
+                    turn_words[-1].raw += raw
+                else:
+                    prefix += raw
+                continue
+            raw, prefix = prefix + raw, ""
             word = Word(
                 index=len(words) + len(turn_words), turn_index=turn_index,
                 speaker=turn.get("speaker_id"), raw=raw,

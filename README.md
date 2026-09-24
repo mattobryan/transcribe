@@ -105,7 +105,14 @@ and every stage is cached in `--out`.
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-pilot.txt
 
-# Quick check first (about 10 minutes after the one-off alignment step):
+# Optional 5-minute smoke test on public FLEURS clips with known answers
+# (downloads ~310 MB once; the only suspect turn should be p0008):
+.\.venv\Scripts\python.exe -m src.transcribe.pilot.make_mock --out data/pilot/mock
+.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+  --audio data/pilot/mock/mock_interview.wav --transcript data/pilot/mock/mock_interview.docx `
+  --out data/pilot/mock/run --languages sw
+
+# Quick check on the real recording (about 10 minutes after the one-off alignment step):
 .\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
   --audio "data/audio/NRCCW_ KSM09.MP3" `
   --transcript data/audio/NRCCW_KSM09.docx `
@@ -119,7 +126,9 @@ and every stage is cached in `--out`.
 ```
 
 The first run downloads the MMS-300m aligner (about 1.2 GB) and Whisper small (about
-0.5 GB). Add `--models small,large-v3-turbo` to compare the larger model (slower on CPU).
+0.5 GB). Measured on a 4-core CPU: alignment emissions run at about 0.2x real time (one hour
+of audio in roughly 12 to 15 minutes, cached afterwards) and Whisper small at 0.3 to 0.6x real
+time per language setting. Add `--models small,large-v3-turbo` to compare the larger model (slower on CPU).
 Outputs in `data/pilot/NRCCW_KSM09/`:
 
 | File | Contents |

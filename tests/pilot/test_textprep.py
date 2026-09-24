@@ -49,3 +49,8 @@ def test_normalizer():
 
 def test_alphabet_filter():
     assert align_form("café", alphabet="acf") == "caf"
+
+
+def test_punctuation_only_tokens_join_neighbours():
+    words = turns_to_words([{"text": "“ Habari , yako . ”", "speaker_id": "R", "spans": []}])
+    assert [w.raw for w in words] == ["“Habari,", "yako.”"]
