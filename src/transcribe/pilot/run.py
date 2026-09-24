@@ -237,7 +237,7 @@ def build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
             "lowest_turns": [{
                 "turn": t["turn_index"], "turn_id": turns[t["turn_index"]].get("turn_id"),
                 "speaker": t["speaker"], "confidence": round(t["confidence"], 3),
-                "at": hms((t.get("window") or [0])[0] if t["status"] not in ("aligned", "short") else t.get("start") or 0),
+                "at": hms((t.get("window") or [0])[0] if t["status"] not in ("aligned", "short", "filled") else t.get("start") or 0),
                 "status": t["status"], "text": turns[t["turn_index"]].get("text", "")[:160],
             } for t in low_turns],
         },
@@ -307,8 +307,11 @@ def render_markdown(report: Dict) -> str:
         "",
         f"- Aligner: `{a['aligner']}` · emissions {a['emission_seconds'] if a['emission_seconds'] is not None else 'cached'} s · alignment {a['alignment_seconds']} s",
         f"- Turn status: {a['turn_status']}",
-        f"- Anchor turns (≥ 12 letters): {a.get('anchor_turns')}; short turns: {a.get('short_turns')} "
-        f"({a.get('short_turns_trusted')} placed with confidence ≥ 0.5)",
+        f"- Anchor turns (≥ 12 letters): {a.get('anchor_turns')}; short turns: {a.get('short_turns')}. "
+        f"First pass trusts confident anchors (*aligned*); the second pass aligns everything between two "
+        f"anchors as one block (*filled*). *Unfilled* turns had no room between their anchors, usually "
+        f"backchannels spoken over the other person.",
+        f"- Words with timings: {a.get('words_timed')} of {report['transcript']['words']}",
         f"- Anchor-turn confidence quantiles (relative to the aligner's best guess): {a['turn_confidence_quantiles']}"
         f" · median absolute posterior {a.get('abs_confidence_median')}",
         f"- Anchor turns below 0.5 (likely non-verbatim, missing or misplaced): **{a['turns_below_0_5']}**",

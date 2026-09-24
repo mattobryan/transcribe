@@ -40,89 +40,100 @@ def viterbi_align(logp: np.ndarray, tokens: Sequence[int], blank: int) -> Option
     is the best log-probability in that frame. Returns one span per token, or
     None if the window is too short to hold the tokens.
     """
+    return viterbi_align_groups(logp, [list(tokens)], blank)
+
+
+def viterbi_align_groups(logp: np.ndarray, groups: Sequence[Sequence[int]], blank: int,
+                         skip_penalty: float = 0.5) -> Optional[List[TokenSpan]]:
+    """Align consecutive token groups (one per transcript turn) in order.
+
+    Between groups a garbage state can absorb audio that is not in the
+    transcript (unclear or vernacular passages, side talk) at ``skip_penalty``
+    nats per frame below the best label, so neighbouring words are not
+    stretched over it. Leading and trailing garbage cost almost nothing.
+    Returns one span per token (all groups flattened), or None.
+    """
     frames = logp.shape[0]
-    n_tokens = len(tokens)
+    groups = [list(g) for g in groups if len(g)]
+    n_tokens = sum(len(g) for g in groups)
     if n_tokens == 0 or frames < n_tokens:
         return None
-    ext = np.empty(2 * n_tokens + 1, dtype=np.int64)
-    ext[0::2] = blank
-    ext[1::2] = tokens
-    n_ext = len(ext)
-    neg = -1e30
-    # Garbage is slightly worse than the best token so real speech frames are
-    # kept by the turn's own tokens instead of being absorbed at the edges.
+    GARBAGE, BLANK, TOKEN = 0, 1, 2
+    kind, ids, tok_index, penalty = [GARBAGE], [blank], [-1], [GARBAGE_PENALTY]
+    k = 0
+    for g, group in enumerate(groups):
+        kind.append(BLANK); ids.append(blank); tok_index.append(-1); penalty.append(0.0)
+        for token in group:
+            kind += [TOKEN, BLANK]; ids += [token, blank]; tok_index += [k, -1]; penalty += [0.0, 0.0]
+            k += 1
+        kind.append(GARBAGE); ids.append(blank); tok_index.append(-1)
+        penalty.append(GARBAGE_PENALTY if g == len(groups) - 1 else skip_penalty)
+    kind = np.array(kind); ids = np.array(ids); tok_index = np.array(tok_index)
+    penalty = np.array(penalty)
+    n = len(kind)
+    is_garbage = kind == GARBAGE
+    skip_ok = np.zeros(n, dtype=bool)
+    skip_ok[2:] = (((kind[2:] == TOKEN) & ~((kind[:-2] == TOKEN) & (ids[:-2] == ids[2:])))
+                   | ((kind[2:] == GARBAGE) & (kind[:-2] == TOKEN)))
     best = logp.max(axis=1)
     heard = logp.argmax(axis=1) != blank    # frames where the model hears a letter
-    garbage = best - GARBAGE_PENALTY
-    skip_ok = np.zeros(n_ext, dtype=bool)
-    skip_ok[2:] = (ext[2:] != blank) & (ext[2:] != ext[:-2])
+    neg = -1e30
 
-    # States: 0 = leading garbage, 1..n_ext = extended CTC states, n_ext+1 = trailing garbage.
-    last = n_ext + 1
-    score = np.full(n_ext + 2, neg)
-    score[0] = garbage[0]
-    first = logp[0, ext]
-    score[1] = first[0]
-    score[2] = first[1]
-    back = np.zeros((frames, n_ext + 2), dtype=np.int8)
+    def emission(t):
+        row = logp[t, ids]
+        return np.where(is_garbage, best[t] - penalty, row)
+
+    score = np.full(n, neg)
+    score[:3] = emission(0)[:3]
+    back = np.zeros((frames, n), dtype=np.int8)
     for t in range(1, frames):
         prev = score
-        new = np.full(n_ext + 2, neg)
-        new[0] = prev[0] + garbage[t]
-        stay = prev[1:n_ext + 1]
-        step1 = prev[0:n_ext]
-        step2 = np.full(n_ext, neg)
-        step2[2:] = np.where(skip_ok[2:], prev[1:n_ext - 1], neg)
-        step2[1] = prev[0]      # leading garbage straight into the first token
-        options = np.stack([stay, step1, step2])
+        step1 = np.full(n, neg)
+        step1[1:] = prev[:-1]
+        step2 = np.full(n, neg)
+        step2[2:] = np.where(skip_ok[2:], prev[:-2], neg)
+        options = np.stack([prev, step1, step2])
         choice = options.argmax(axis=0)
-        new[1:n_ext + 1] = options[choice, np.arange(n_ext)] + logp[t, ext]
-        back[t, 1:n_ext + 1] = choice
-        tail = (prev[last], prev[n_ext], prev[n_ext - 1])
-        best_tail = int(np.argmax(tail))
-        new[last] = tail[best_tail] + garbage[t]
-        back[t, last] = best_tail
-        score = new
+        score = options[choice, np.arange(n)] + emission(t)
+        back[t] = choice
 
-    finals = (score[last], score[n_ext], score[n_ext - 1])
-    state = (last, n_ext, n_ext - 1)[int(np.argmax(finals))]
+    finals = [n - 1, n - 2, n - 3]
+    state = finals[int(np.argmax(score[finals]))]
     path = np.empty(frames, dtype=np.int64)
     for t in range(frames - 1, -1, -1):
         path[t] = state
-        if t == 0:
-            break
-        move = int(back[t, state])
-        if state == last:
-            state = (last, n_ext, n_ext - 1)[move]
-        else:
-            state = state - move
+        if t:
+            state -= int(back[t, state])
 
+    owner = np.full(n, -1)
+    owner[kind == TOKEN] = tok_index[kind == TOKEN]
+    between = np.zeros(n, dtype=bool)
+    between[1:-1] = (kind[1:-1] == BLANK) & (kind[:-2] == TOKEN) & (kind[2:] == TOKEN)
+    owner[1:-1] = np.where(between[1:-1], tok_index[:-2], owner[1:-1])
+    flat = [token for group in groups for token in group]
     spans: List[Optional[List[float]]] = [None] * n_tokens
     rel_sum = np.zeros(n_tokens)
     rel_n = np.zeros(n_tokens)
     for t, state in enumerate(path):
-        if not 1 <= state <= n_ext:
-            continue
-        j = state - 1                       # extended index: odd = token, even = blank
-        if j % 2 == 1:
-            k = j // 2
-            value = logp[t, tokens[k]]
+        if kind[state] == TOKEN:
+            k = tok_index[state]
+            value = logp[t, flat[k]]
             if spans[k] is None:
                 spans[k] = [t, t + 1, value, 1]
             else:
                 spans[k][1] = t + 1
                 spans[k][2] += value
                 spans[k][3] += 1
-        elif 0 < j < n_ext - 1 and heard[t]:
-            k = j // 2 - 1                  # blank between tokens while a letter is heard
+        elif between[state] and heard[t]:
+            k = owner[state]                # blank between tokens while a letter is heard
         else:
-            continue                        # silence agreement proves nothing
-        rel_sum[k] += math.exp(logp[t, ext[j]] - best[t])
+            continue                        # garbage, and silence agreement, prove nothing
+        rel_sum[k] += math.exp(logp[t, ids[state]] - best[t])
         rel_n[k] += 1
     if any(span is None for span in spans):
         return None
-    return [TokenSpan(int(s[0]), int(s[1]), float(s[2] / s[3]), float(rel_sum[k] / rel_n[k]))
-            for k, s in enumerate(spans)]
+    return [TokenSpan(int(sp[0]), int(sp[1]), float(sp[2] / sp[3]), float(rel_sum[k] / rel_n[k]))
+            for k, sp in enumerate(spans)]
 
 
 class Emitter:
@@ -210,7 +221,8 @@ SHORT_WINDOW_S = 20.0
 
 def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
                 chars_per_second: float = 14.0, trust: float = 0.5,
-                max_window_s: float = 900.0, progress=None) -> List[Dict]:
+                max_window_s: float = 900.0, fill_gaps: bool = True,
+                use_marker=lambda marker: True, progress=None) -> List[Dict]:
     """Align words turn by turn; fills word.start/end/score in place.
 
     Confidence is relative: how close each letter's posterior is to the best
@@ -301,9 +313,120 @@ def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
         reports.append(record)
         if progress:
             progress(n + 1, len(turn_ids))
+    if fill_gaps:
+        _fill_between_anchors(logp, words, token_ids, blank, reports, use_marker)
     _enforce_order(words)
     _interpolate(words)
     return reports
+
+
+MAX_CELLS = 3e8                 # frames x states per gap alignment (~300 MB back-pointers)
+
+
+# Nats per frame for the between-turn garbage state. On NRCCW_KSM09 it never
+# won against blank (CTC blank dominates most frames, so stretching blank is
+# already nearly free); timestamped markers are what fix untranscribed stretches.
+SKIP_PENALTY = 0.5
+MARKER_TOLERANCE_S = 3.0        # transcriber timestamps are whole seconds and approximate
+
+
+def _blocks(alignable: List[Word], lo: int, hi: int, use_marker) -> List[Tuple[List[Word], int, int]]:
+    """Split a gap's words at timestamped markers ("[No speech 17:26-18:14]"):
+    words before a marker must end near its start, words after must start near its end."""
+    tol = int(MARKER_TOLERANCE_S / FRAME_SECONDS)
+    cuts = []                                   # (index of first word after the cut, ms, me)
+    for i, word in enumerate(alignable):
+        for marker in word.markers:
+            if not use_marker(marker):
+                continue
+            ms, me = int(marker["start"] / FRAME_SECONDS), int(marker["end"] / FRAME_SECONDS)
+            cut = i if marker["side"] == "before" else i + 1
+            if 0 < cut < len(alignable) or (cut == 0 and marker["side"] == "before") or cut == len(alignable):
+                cuts.append((cut, ms, me))
+    blocks, start_word, block_lo = [], 0, lo
+    for cut, ms, me in sorted(set(cuts)):
+        block_hi = min(hi, ms + tol)
+        next_lo = max(lo, me - tol)
+        if cut < start_word or block_hi <= block_lo or next_lo >= hi:
+            continue                            # inconsistent with earlier cuts or the anchors
+        if cut > start_word:
+            blocks.append((alignable[start_word:cut], block_lo, block_hi))
+        start_word, block_lo = cut, max(block_lo, next_lo)
+    if start_word < len(alignable):
+        blocks.append((alignable[start_word:], block_lo, hi))
+    return blocks
+
+
+def _fill_between_anchors(logp: np.ndarray, words: List[Word], token_ids, blank: int,
+                          reports: List[Dict], use_marker=lambda marker: True) -> None:
+    """Second pass: align every turn between two trusted anchor turns as one
+    block, bounded by the anchors on both sides.
+
+    Bounding both ends stops drift, and short turns get placed in context
+    instead of being searched for on their own.
+    """
+    total = logp.shape[0]
+    by_turn: Dict[int, List[Word]] = {}
+    for word in words:
+        by_turn.setdefault(word.turn_index, []).append(word)
+    record_of = {r["turn_index"]: r for r in reports}
+    anchors = [t for t in sorted(by_turn) if record_of.get(t, {}).get("status") == "aligned"]
+    bounds = [(None, anchors[0] if anchors else None)]
+    bounds += list(zip(anchors, anchors[1:]))
+    if anchors:
+        bounds.append((anchors[-1], None))
+    for left, right in bounds:
+        lo_turn = -1 if left is None else left
+        hi_turn = (max(by_turn) + 1) if right is None else right
+        gap_turns = [t for t in sorted(by_turn) if lo_turn < t < hi_turn]
+        if not gap_turns:
+            continue
+        lo = 0 if left is None else int(round(max(w.end for w in by_turn[left] if w.end is not None) / FRAME_SECONDS))
+        hi = total if right is None else int(round(min(w.start for w in by_turn[right] if w.start is not None) / FRAME_SECONDS))
+        lo = max(0, lo - 10)
+        hi = min(total, hi + 10)
+        alignable = [w for t in gap_turns for w in by_turn[t] if w.align]
+        for word in alignable:
+            word.start = word.end = word.score = None
+        for block, block_lo, block_hi in _blocks(alignable, lo, hi, use_marker):
+            _align_block(logp, block, block_lo, block_hi, token_ids, blank)
+        for t in gap_turns:
+            placed = [w for w in by_turn[t] if w.score is not None]
+            if t not in record_of or record_of[t]["status"] == "empty":
+                continue
+            if placed:
+                record_of[t].update(status="filled", confidence=float(np.mean([w.score for w in placed])),
+                                    start=placed[0].start, end=placed[-1].end)
+            else:
+                record_of[t].update(status="unfilled", confidence=None)
+
+
+def _align_block(logp: np.ndarray, block: List[Word], lo: int, hi: int, token_ids, blank: int) -> None:
+    ids: List[int] = []
+    owners: List[int] = []
+    groups: List[List[int]] = []
+    for position, word in enumerate(block):
+        word_ids = token_ids(word.align)
+        if not word_ids:
+            continue
+        if not groups or word.turn_index != block[position - 1].turn_index:
+            groups.append([])
+        groups[-1].extend(word_ids)
+        ids.extend(word_ids)
+        owners.extend([position] * len(word_ids))
+    if not ids or hi - lo < len(ids) or (hi - lo) * (2 * len(ids) + 4 * len(groups)) > MAX_CELLS:
+        return
+    spans = viterbi_align_groups(logp[lo:hi], groups, blank, skip_penalty=SKIP_PENALTY)
+    if spans is None:
+        return
+    per_word: Dict[int, List[TokenSpan]] = {}
+    for owner, span in zip(owners, spans):
+        per_word.setdefault(owner, []).append(span)
+    for position, word in enumerate(block):
+        word_spans = per_word[position]
+        word.start = (lo + word_spans[0].start) * FRAME_SECONDS
+        word.end = (lo + word_spans[-1].end) * FRAME_SECONDS
+        word.score = float(np.mean([s.relative for s in word_spans]))
 
 
 def _enforce_order(words: List[Word], tolerance: float = 0.3) -> None:
