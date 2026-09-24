@@ -67,3 +67,15 @@ def test_real_transcript_markers():
     assert [w.norm for w in words] == ["na", "watu", "wa", "sawa", "haya"]
     assert words[3].annotations == ["unclear"]
     assert words[4].annotations == ["no_speech", "unclear"]
+
+
+def test_marker_timestamps_recorded():
+    turns = [{"text": "Sawa [Unclear 1:05:21-1:05:24] haya", "speaker_id": "I", "spans": []},
+             {"text": "[No speech - activity, 17:26-18:14]", "speaker_id": "R", "spans": []},
+             {"text": "tuendelee (Unclear: 13:10-13:15]]", "speaker_id": "I", "spans": []}]
+    words = turns_to_words(turns)
+    assert [w.norm for w in words] == ["sawa", "haya", "tuendelee"]
+    assert {"start": 3921.0, "end": 3924.0, "side": "before"} in words[1].markers
+    assert {"start": 1046.0, "end": 1094.0, "side": "after"} in words[1].markers
+    assert {"start": 1046.0, "end": 1094.0, "side": "before"} in words[2].markers
+    assert {"start": 790.0, "end": 795.0, "side": "after"} in words[2].markers

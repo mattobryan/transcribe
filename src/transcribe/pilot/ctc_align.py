@@ -301,8 +301,22 @@ def align_words(logp: np.ndarray, words: List[Word], token_ids, blank: int,
         reports.append(record)
         if progress:
             progress(n + 1, len(turn_ids))
+    _enforce_order(words)
     _interpolate(words)
     return reports
+
+
+def _enforce_order(words: List[Word], tolerance: float = 0.3) -> None:
+    """Drop timings that run backwards in time (a short turn placed before the
+    previous anchor), so no segment can end before it starts."""
+    last_end = 0.0
+    for word in words:
+        if word.start is None:
+            continue
+        if word.start < last_end - tolerance:
+            word.start = word.end = word.score = None
+            continue
+        last_end = max(last_end, word.end)
 
 
 def _interpolate(words: List[Word]) -> None:

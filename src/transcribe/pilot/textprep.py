@@ -30,6 +30,9 @@ class Word:
     align: str
     lang: str = "unknown"          # en | sw | mixed | unknown
     annotations: List[str] = field(default_factory=list)
+    # Timestamped markers next to this word, e.g. "[Unclear 13:10-13:15]":
+    # {"start": s, "end": s, "side": "before" | "after"}. Used to check alignment.
+    markers: List[Dict] = field(default_factory=list)
     start: Optional[float] = None
     end: Optional[float] = None
     score: Optional[float] = None
@@ -65,6 +68,17 @@ def align_form(raw: str, alphabet: Optional[Iterable[str]] = None) -> str:
         allowed = set(alphabet)
         text = "".join(ch for ch in text if ch in allowed)
     return text
+
+
+TIMESTAMP = re.compile(r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})")
+
+
+def marker_times(marker: str) -> Optional[Dict]:
+    """'[Unclear 1:05:21-1:05:24]' -> {'start': 3921.0, 'end': 3924.0}."""
+    stamps = [int(h or 0) * 3600 + int(m) * 60 + int(s) for h, m, s in TIMESTAMP.findall(marker)]
+    if not stamps:
+        return None
+    return {"start": float(stamps[0]), "end": float(stamps[-1])}
 
 
 def annotation_kind(marker: str) -> str:
@@ -116,10 +130,14 @@ def _word_lang(text: str, start: int, end: int, spans: Sequence[Dict]) -> str:
 
 def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = None) -> List[Word]:
     words: List[Word] = []
+    carried: List[Dict] = []        # timestamps from turns without words ("[No speech ...]")
     for turn_index, turn in enumerate(turns):
         text = turn.get("text", "")
         spans = turn.get("spans", [])
         markers = [(m.start(), m.end(), annotation_kind(m.group())) for m in ANNOTATION.finditer(text)]
+        stamps = {m.start(): marker_times(m.group()) for m in ANNOTATION.finditer(text)}
+        stamp_pending: List[Dict] = carried
+        carried = []
         pending: List[str] = []
         prefix = ""
         turn_words: List[Word] = []
@@ -132,6 +150,8 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
         for match in tokens:
             while next_marker is not None and next_marker[0] < match.start():
                 pending.append(next_marker[2])
+                if stamps.get(next_marker[0]):
+                    stamp_pending.append({**stamps[next_marker[0]], "side": "before"})
                 next_marker = next(marker_iter, None)
             raw = match.group()
             if PARTICIPANT.match(raw):
@@ -152,14 +172,25 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
                 speaker=turn.get("speaker_id"), raw=raw,
                 norm=normalize_word(raw), align=align_form(raw, alphabet),
                 lang=_word_lang(text, match.start(), match.end(), spans),
-                annotations=pending,
+                annotations=pending, markers=stamp_pending,
             )
             pending = []
+            stamp_pending = []
             turn_words.append(word)
+        trailing: List[Dict] = []
         while next_marker is not None:
             pending.append(next_marker[2])
+            if stamps.get(next_marker[0]):
+                trailing.append({**stamps[next_marker[0]], "side": "after"})
             next_marker = next(marker_iter, None)
-        if pending and turn_words:
+        if turn_words:
             turn_words[-1].annotations.extend(pending)
+            turn_words[-1].markers.extend(trailing)
+        else:
+            # A turn that is only a marker: check it against the previous word
+            # (its end should come before the marker) and the next one.
+            if words:
+                words[-1].markers.extend({**m, "side": "after"} for m in stamp_pending + trailing)
+            carried = [{**m, "side": "before"} for m in stamp_pending + trailing]
         words.extend(turn_words)
     return words

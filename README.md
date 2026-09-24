@@ -147,6 +147,29 @@ Review the pre-filled chunks and measure your speed:
 
 The reports contain transcript text and numbers, not audio.
 
+## Pilot on Kaggle (GPU, no monitoring)
+
+1. Kaggle > **Datasets > New Dataset** (private): upload the audio files and their DOCX
+   transcripts. Names must match (`NRCCW_ KSM09.MP3` + `NRCCW_KSM09.docx`; case, spaces and
+   underscores are ignored).
+2. Kaggle > **New Notebook** > File > Import Notebook > this repo's
+   `notebooks/kaggle_pilot.ipynb` (or paste its code cell). **Add Data** > your dataset.
+   **Settings**: Accelerator = GPU, Internet = On.
+3. **Save Version > Save & Run All (Commit)** and close the tab.
+4. When it finishes: open the version > **Output** > download `pilot_reports.zip`
+   (`summary.md` across recordings, plus each recording's `report.md`).
+
+The notebook's only code:
+
+```
+!rm -rf transcribe && git clone -q --depth 1 -b matt/relaxed-meitner-2lfrx6 https://github.com/mattobryan/transcribe.git
+!cd transcribe && bash scripts/kaggle_pilot.sh
+```
+
+`scripts/kaggle_pilot.sh` installs dependencies, runs the pilot tests, checks that Whisper can use
+the GPU (falls back to CPU if not), runs every recording it finds, and zips the reports. Options
+go before `bash`: `MODELS=small LANGS=sw MAX_SEGMENTS=150 ONLY=NRCCW_KSM09 bash scripts/kaggle_pilot.sh`.
+
 ## Prepare Reviewed Long Recordings
 
 The annotation workflow starts from the complete audio and reviewed DOCX transcript. It

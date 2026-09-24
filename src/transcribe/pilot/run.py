@@ -80,7 +80,7 @@ def align_stage(args, out: Path, audio: np.ndarray, turns: List[Dict]) -> Dict:
     from .ctc_align import Emitter, align_words, load_or_compute_emissions
 
     log(f"Loading aligner {args.aligner} (first run downloads ~1.2 GB)")
-    emitter = Emitter(args.aligner)
+    emitter = Emitter(args.aligner, device=args.device)
     cached = (out / "emissions.npy").exists()
     log("Loading cached emissions" if cached else "Computing emissions (the slow step; cached afterwards)")
     started = time.perf_counter()
@@ -113,7 +113,7 @@ def asr_stage(args, out: Path, audio: np.ndarray, spans: List[Dict], kind: str) 
                     continue
             if runner is None:
                 log(f"Loading Whisper {model}")
-                runner = WhisperRunner(model, threads=args.threads)
+                runner = WhisperRunner(model, device=args.whisper_device, threads=args.threads)
             log(f"Whisper {model}, language={language}: {len(spans)} {kind}")
             result = run_config(runner, audio, spans, language, bar(f"{model}/{language}"))
             result["ids"] = ids
@@ -189,8 +189,29 @@ def build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
     low_turns = sorted((t for t in anchors if t["confidence"] is not None),
                        key=lambda t: t["confidence"])[:25]
 
+    checks = []
+    for w in words:
+        for m in getattr(w, "markers", []) or []:
+            if w.start is None:
+                checks.append({"marker": f"{hms(m['start'])}-{hms(m['end'])}", "side": m["side"],
+                               "word": w.raw, "delta": None})
+                continue
+            delta = w.start - m["end"] if m["side"] == "before" else w.end - m["start"]
+            checks.append({"marker": f"{hms(m['start'])}-{hms(m['end'])}", "side": m["side"],
+                           "word": w.raw, "aligned": hms(w.start if m["side"] == "before" else w.end),
+                           "delta": round(delta, 1)})
+    deltas = [abs(c["delta"]) for c in checks if c["delta"] is not None]
+    marker_check = {
+        "markers": len(checks), "placed": len(deltas),
+        "median_abs_error_s": round(float(np.median(deltas)), 1) if deltas else None,
+        "within_3s": round(sum(d <= 3 for d in deltas) / len(deltas), 3) if deltas else None,
+        "within_10s": round(sum(d <= 10 for d in deltas) / len(deltas), 3) if deltas else None,
+        "checks": checks,
+    }
+
     report = {
         "recording_id": args.recording_id,
+        "marker_check": marker_check,
         "generated": time.strftime("%Y-%m-%d %H:%M"),
         "machine": {"python": sys.version.split()[0], "platform": platform.platform(),
                     "processor": platform.processor()},
@@ -303,6 +324,22 @@ def render_markdown(report: Dict) -> str:
     for t in a["lowest_turns"]:
         text = t["text"].replace("|", "/")
         lines.append(f"| {t['turn_id']} | {t['speaker']} | {t['confidence']} | {t['at']} | {text} |")
+    mc = report.get("marker_check") or {}
+    if mc.get("markers"):
+        lines += [
+            "",
+            "### Check against the transcriber's timestamps",
+            "",
+            f"{mc['markers']} timestamped markers; {mc['placed']} next to a placed word. "
+            f"Median error {mc['median_abs_error_s']} s; within 3 s: {pct(mc['within_3s'])}; "
+            f"within 10 s: {pct(mc['within_10s'])}. (Transcriber stamps are whole seconds and approximate.)",
+            "",
+            "| Marker | Word | Side | Aligned | Error (s) |",
+            "|---|---|---|---|---|",
+        ]
+        for c in mc["checks"][:60]:
+            lines.append(f"| {c['marker']} | {c['word']} | {c['side']} | {c.get('aligned', 'not placed')} | "
+                         f"{c['delta'] if c['delta'] is not None else '–'} |")
     lines += [
         "",
         "## 2. Segments",
@@ -360,6 +397,10 @@ def main() -> None:
     parser.add_argument("--languages", default="sw,en,auto")
     parser.add_argument("--max-segments", type=int, default=0, help="Evaluate an even sample (0 = all)")
     parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"],
+                        help="Aligner device (auto = GPU when available)")
+    parser.add_argument("--whisper-device", default=None, choices=["auto", "cpu", "cuda"],
+                        help="Whisper device (default: same as --device)")
     parser.add_argument("--skip-asr", action="store_true")
     parser.add_argument("--export-review", action="store_true", help="Write WAV chunks + review_manifest.json")
     parser.add_argument("--realign", action="store_true")
@@ -368,6 +409,13 @@ def main() -> None:
     args.models = [m.strip() for m in args.models.split(",") if m.strip()]
     args.languages = [lang.strip() for lang in args.languages.split(",") if lang.strip()]
     args.recording_id = args.recording_id or Path(args.transcript).stem
+    args.whisper_device = args.whisper_device or args.device
+    if args.device == "auto":
+        try:
+            import torch
+            args.device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            args.device = "cpu"
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

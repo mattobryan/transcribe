@@ -1,4 +1,8 @@
-"""Zero-shot Whisper transcription of segments with faster-whisper (CPU int8)."""
+"""Zero-shot Whisper transcription of segments with faster-whisper.
+
+GPU (float16) when available, CPU int8 otherwise; a GPU whose CUDA/cuDNN
+libraries fail to load falls back to CPU instead of stopping the run.
+"""
 
 import os
 import time
@@ -9,15 +13,41 @@ import numpy as np
 SR = 16000
 
 
+def cuda_available() -> bool:
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
 class WhisperRunner:
-    def __init__(self, model: str = "small", compute_type: str = "int8", threads: int = 0):
+    def __init__(self, model: str = "small", device: str = "auto", threads: int = 0):
+        self.name = model
+        self.threads = threads or (os.cpu_count() or 4)
+        use_gpu = device == "cuda" or (device == "auto" and cuda_available())
+        self.device = "cuda" if use_gpu else "cpu"
+        self.model = self._load()
+
+    def _load(self):
         from faster_whisper import WhisperModel
 
-        self.name = model
-        self.model = WhisperModel(model, device="cpu", compute_type=compute_type,
-                                  cpu_threads=threads or (os.cpu_count() or 4))
+        compute_type = "float16" if self.device == "cuda" else "int8"
+        return WhisperModel(self.name, device=self.device, compute_type=compute_type,
+                            cpu_threads=self.threads)
 
     def transcribe(self, audio: np.ndarray, language: Optional[str]) -> Dict:
+        try:
+            return self._transcribe(audio, language)
+        except RuntimeError as exc:
+            if self.device != "cuda":
+                raise
+            print(f"    GPU transcription failed ({exc}); falling back to CPU int8", flush=True)
+            self.device = "cpu"
+            self.model = self._load()
+            return self._transcribe(audio, language)
+
+    def _transcribe(self, audio: np.ndarray, language: Optional[str]) -> Dict:
         segments, info = self.model.transcribe(
             audio.astype(np.float32), language=language, task="transcribe",
             beam_size=5, condition_on_previous_text=False, vad_filter=False,
