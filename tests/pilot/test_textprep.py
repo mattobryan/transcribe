@@ -54,3 +54,16 @@ def test_alphabet_filter():
 def test_punctuation_only_tokens_join_neighbours():
     words = turns_to_words([{"text": "“ Habari , yako . ”", "speaker_id": "R", "spans": []}])
     assert [w.raw for w in words] == ["“Habari,", "yako.”"]
+
+
+def test_false_starts_split():
+    words = turns_to_words([{"text": "Haya tuta--tutaanza, tuna--, kunasa\u2026 sawa", "speaker_id": "I", "spans": []}])
+    assert [w.norm for w in words] == ["haya", "tuta", "tutaanza", "tuna", "kunasa", "sawa"]
+
+
+def test_real_transcript_markers():
+    text = "Na watu wa (Unclear: 1:38:47-1:38:49]]. Sawa [No speech - activity, 17:22-17:24] haya [[Unclear 1:16:07]]"
+    words = turns_to_words([{"text": text, "speaker_id": "R", "spans": []}])
+    assert [w.norm for w in words] == ["na", "watu", "wa", "sawa", "haya"]
+    assert words[3].annotations == ["unclear"]
+    assert words[4].annotations == ["no_speech", "unclear"]

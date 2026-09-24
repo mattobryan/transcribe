@@ -9,8 +9,14 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence
 
-ANNOTATION = re.compile(r"\[[^\]]*\]")
+# Transcriber markers: "[Unclear 13:10-13:15]", "[No speech - activity, 17:22-17:24]",
+# and the looser "(Unclear: 1:16:07-1:16:08]]" forms seen in real transcripts.
+ANNOTATION = re.compile(
+    r"\[+[^\]]*\]+"
+    r"|\((?:unclear|no speech|inaudible|crosstalk|overlap|laugh)[^)\]]*[)\]]+",
+    re.IGNORECASE)
 WORD = re.compile(r"\S+")
+BREAK = re.compile(r"-{2,}|\u2014|\u2026")
 
 
 @dataclass
@@ -66,6 +72,8 @@ def annotation_kind(marker: str) -> str:
         return "unclear"
     if "overlap" in lowered or "crosstalk" in lowered or "cross talk" in lowered:
         return "overlap"
+    if "no speech" in lowered:
+        return "no_speech"
     return "other"
 
 
@@ -114,7 +122,10 @@ def turns_to_words(turns: Sequence[Dict], alphabet: Optional[Iterable[str]] = No
         pending: List[str] = []
         prefix = ""
         turn_words: List[Word] = []
-        tokens = list(WORD.finditer(ANNOTATION.sub(lambda m: " " * len(m.group()), text)))
+        masked = ANNOTATION.sub(lambda m: " " * len(m.group()), text)
+        # False starts and cut-offs ("tuta--tutaanza", "tuna--,") are separate words.
+        masked = BREAK.sub(lambda m: " " * len(m.group()), masked)
+        tokens = list(WORD.finditer(masked))
         marker_iter = iter(sorted(markers))
         next_marker = next(marker_iter, None)
         for match in tokens:
