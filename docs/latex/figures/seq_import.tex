@@ -30,7 +30,7 @@
 \draw[karrow] (8.00,-9.35) -- (11.20,-9.35);
 \node[anchor=south,text width=3.00cm,align=center,inner sep=1pt] at (12.80,-9.93) {claim job};
 \draw[karrow] (14.40,-9.95) -- (11.20,-9.95);
-\node[draw=kctaccent,fill=kctbg,rounded corners=2pt,text width=6.70cm,align=center,inner sep=3pt] at (12.40,-10.68) {decode 16k mono → normalise text → emissions → turn-anchored alignment};
+\node[draw=kctaccent,fill=kctbg,rounded corners=2pt,text width=6.70cm,align=center,inner sep=3pt] at (12.40,-10.68) {decode 16k mono → normalise text → emissions → two-pass alignment (anchors, then blocks bounded by transcript timestamps)};
 \node[anchor=south,text width=3.00cm,align=center,inner sep=1pt] at (12.80,-11.98) {alignment\_run, aligned\_words};
 \draw[karrow] (14.40,-12.00) -- (11.20,-12.00);
 \node[draw=kctaccent,fill=kctbg,rounded corners=2pt,text width=6.70cm,align=center,inner sep=3pt] at (12.40,-12.73) {segmentation (≤30 s, gaps ≥300 ms) + auto-flags + priority};

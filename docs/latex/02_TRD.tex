@@ -2,7 +2,8 @@
 \usepackage{kctdocs}
 \begin{document}
 \kcttitle{02}{Technical Requirements Document (TRD)}{%
-Status & Draft v1 \\
+Status & Draft \\
+Version & 1.2 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -60,6 +61,7 @@ This was the proposal in the requirements discussion. It does not work for Kenya
 
 \hypertarget{chosen-models}{%
 \subsection{Chosen models}\label{chosen-models}}
+\kctchanged{1.2}
 
 \begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.130}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.435}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.435}}@{}}
 \toprule\noalign{}
@@ -71,7 +73,7 @@ Role & Model & Why \\
 \textbf{v1 production} & \texttt{openai/\allowbreak{}whisper-\allowbreak{}small} (244M), full fine-tune & Fits a Kaggle T4 in fp16. Readable output with casing and punctuation. Its 30 s window matches our segments. Mature CPU serving via faster-whisper int8. The fast iteration suits learning the process \\
 v2 candidate & \texttt{openai/\allowbreak{}whisper-\allowbreak{}large-\allowbreak{}v3-\allowbreak{}turbo} (809M, 4-layer decoder), LoRA or 8-bit optimiser & Much stronger encoder with an inference cost close to small/medium. Adopted only if it beats v1 on the frozen dev set by a meaningful margin \\
 Comparison (learning track) & \texttt{facebook/\allowbreak{}w2v-\allowbreak{}bert-\allowbreak{}2.\allowbreak{}0} + CTC head, optional KenLM trained on code-switched text & Contrasting paradigm: no hallucination, faithful verbatim output, character-level. Teaches CTC fine-tuning and LM fusion. Not production because it has no punctuation and weaker CPU tooling \\
-Aligner (not trained) & MMS-300m forced-alignment model + uroman romaniser (via \texttt{ctc-\allowbreak{}forced-\allowbreak{}aligner}, or \texttt{torchaudio} MMS\_FA pinned) & Language-agnostic: it aligns any romanised text, so mixed EN/SW transcripts align without choosing a language \\
+Aligner (not trained) & MMS-300m forced-alignment CTC model (\texttt{MahmoudAshraf/\allowbreak{}mms-\allowbreak{}300m-\allowbreak{}1130-\allowbreak{}forced-\allowbreak{}aligner}) loaded with Hugging Face \texttt{transformers}; the Viterbi alignment is our own NumPy code (\texttt{pilot/\allowbreak{}ctc\_\allowbreak{}align.\allowbreak{}py}). Latin EN/SW text needs no uroman: NFKD normalisation strips diacritics & Language-agnostic: it aligns any romanised text, so mixed EN/SW transcripts align without choosing a language. Owning the Viterbi removes the torchaudio deprecation risk and lets us add the two-pass anchoring of §\ref{long-form-alignment} \\
 VAD & Silero VAD & Robust on noise and music compared with the current energy threshold. Runs on CPU in ms per window \\
 Legacy & Existing MFCC CNN-LSTM CTC/Seq2Seq & Kept under \texttt{legacy/\allowbreak{}} as an educational baseline only. Not deployable (see §2.4) \\
 \end{longtable}
@@ -155,33 +157,46 @@ ingest → normalise audio → parse transcript → normalise text for alignment
 \hypertarget{text-normalisation-for-alignment-a-separate-text-never-shown-as-the-label}{%
 \subsection{Text normalisation for alignment (a separate text, never shown as the label)}\label{text-normalisation-for-alignment-a-separate-text-never-shown-as-the-label}}
 
+\kctchanged{1.2}
 \begin{itemize}
 \tightlist
 \item
-  Remove bracketed annotations (\texttt{[unclear]}, \texttt{[laughs]}, \texttt{[crosstalk]}), but record their word positions for flags.
+  Remove transcriber markers and record them on the neighbouring word. Real transcripts use several forms, all recognised: \texttt{[Unclear 13:10-13:15]}, \texttt{[No speech - activity, 17:22-17:24]}, \texttt{[[Unclear 1:16:07]]} and \texttt{(Unclear: 1:16:07-1:16:08]]}. Their \textbf{timestamps are kept} and used as alignment boundaries and as an accuracy check (§\ref{long-form-alignment}).
 \item
-  Lowercase, and romanise with uroman (a no-op for Latin script, but it normalises diacritics and apostrophes).
+  Participant references such as \texttt{P7.} stand in for a spoken name: they are not aligned, and the segment is flagged \texttt{redacted\_\allowbreak{}marker} (excluded from training).
 \item
-  Numbers are verbalised (\href{STYLE_GUIDE.pdf}{STYLE\_GUIDE §4}). For each digit token the pipeline generates an English and a Kiswahili candidate (the default comes from the span language, years → English, labels → English title case). It aligns both candidates locally and keeps the one with the higher score. If the scores differ by less than a margin (initially 0.1), the word becomes the \texttt{*} wildcard and the segment is flagged \texttt{number\_\allowbreak{}check}. The chosen spoken form becomes the segment label. English uses \texttt{num2words}; Kiswahili uses a small rule-based verbaliser in \texttt{corpus/\allowbreak{}numbers\_\allowbreak{}sw.\allowbreak{}py} (the system is regular, and it gets unit tests from the style guide table).
+  False starts and cut-offs written with \texttt{--}, an em dash or an ellipsis (\texttt{tuta--tutaanza}) are split into separate words. Punctuation-only tokens stay attached to the neighbouring word.
+\item
+  Lowercase and strip diacritics (NFKD); keep only letters in the aligner's vocabulary.
+\item
+  \textbf{Numbers (current pilot):} digits are not aligned; their words get times interpolated from neighbours, and the segment is flagged \texttt{has\_\allowbreak{}number}. \textbf{Planned (Phase 1):} verbalisation per \href{STYLE_GUIDE.pdf}{STYLE\_GUIDE §4}, generating an English and a Kiswahili candidate and keeping the one the aligner scores higher; near ties flag \texttt{number\_\allowbreak{}check}. English via \texttt{num2words}, Kiswahili via a rule-based \texttt{corpus/\allowbreak{}numbers\_\allowbreak{}sw.\allowbreak{}py}.
 \item
   Optional display ITN (words → digits) runs on Transcribe output only (P1), never on training text.
 \item
-  Keep a word-level index map \texttt{norm\_\allowbreak{}word\_\allowbreak{}i → source\_\allowbreak{}char\_\allowbreak{}span} so aligned timestamps map back onto the \textbf{original} transcript text, which becomes the segment label.
+  Each word keeps its original spelling, which becomes the segment label; the aligner only sees the normalised letters.
 \end{itemize}
 
 \hypertarget{long-form-alignment}{%
 \subsection{Long-form alignment}\label{long-form-alignment}}
 
+\kctchanged{1.2}
+Validated on NRCCW\_KSM09 (2~h~05~min, 1\,237 turns, 12\,305 words); see the \hyperref[changelog]{change log} for the measurements.
 \begin{itemize}
 \tightlist
 \item
-  CTC emissions are computed over the full audio in 30 s windows with 2 s overlap, then stitched.
+  \textbf{Emissions.} CTC log-probabilities for the whole recording in 30~s windows with 2~s context, stitched and cached (\texttt{emissions.\allowbreak{}npy}, about 23~MB for 2~h). This is the only slow step: about 0.2$\times$ real time on a 4-core CPU, 0.8$\times$ on a slower laptop, a few minutes on a Kaggle GPU.
 \item
-  Alignment is turn-anchored: each transcript turn is aligned inside a search window around its expected position (moving anchor). This keeps the Viterbi trellis small (T × L per turn instead of per recording) and localises damage from non-verbatim passages.
+  \textbf{Confidence} is \emph{relative}: for each letter, how close the forced path is to the aligner's best guess, measured only on frames where the path emits a letter or the model hears one. Silence agreement proves nothing and is ignored. Spoken text scores near 1 even in noisy far-field audio; text that was never spoken scores low (FLEURS mock: spoken 0.70--1.00, unspoken 0.41). The earlier absolute-posterior measure rejected most real turns on noisy audio.
 \item
-  Output per word: \texttt{start\_\allowbreak{}s}, \texttt{end\_\allowbreak{}s}, and \texttt{score} (mean frame log-posterior, turned into a 0--1 confidence).
+  \textbf{Pass 1, anchors.} Each turn of at least 12 letters is searched in a window after the last trusted turn. It becomes an anchor only if its confidence clears a length-dependent bar (0.8 for short turns, easing to 0.5 for long ones), because short text can match by chance. Shorter turns (``Mm-hmm'') are never anchors.
 \item
-  A turn whose mean confidence is below θ (initially 0.5, tuned on the first reviewed recording) is flagged \texttt{low\_\allowbreak{}alignment}. That is the usual signature of a non-verbatim or missing passage.
+  \textbf{Pass 2, fill.} Everything between two consecutive anchors is aligned as one block, bounded on both sides, so it cannot drift and short turns are placed in context. The block is split at timestamped markers: words before a marker must end near its start and words after it must start near its end (±3~s tolerance). Turns with no room between their anchors (usually backchannels spoken over the other person) stay \emph{unfilled}.
+\item
+  \textbf{Safety.} Timings that run backwards are dropped. Words whose confidence is below 0.5 make their segment \texttt{low\_\allowbreak{}alignment}, which keeps it out of training. On NRCCW\_KSM09 every word placed more than 10~s from a transcriber timestamp fell in such a segment.
+\item
+  \textbf{Accuracy check.} The report compares aligned times with the transcriber's timestamps (median error, share within 3~s and 10~s). Tuning used half of the markers as boundaries and scored on the other half.
+\item
+  Output per word: \texttt{start}, \texttt{end}, \texttt{score} (relative confidence, 0--1).
 \end{itemize}
 
 \hypertarget{priority-score-for-the-review-queue}{%
@@ -301,6 +316,7 @@ The package imports as \texttt{transcribe} (installed via \texttt{pip install -\
 
 \hypertarget{dependencies}{%
 \section{Dependencies}\label{dependencies}}
+\kctchanged{1.2}
 
 \begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.196}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.804}}@{}}
 \toprule\noalign{}
@@ -310,7 +326,8 @@ Group & Packages \\
 \bottomrule\noalign{}
 \endlastfoot
 core & fastapi, uvicorn, sqlalchemy≥2, alembic, pydantic≥2, python-multipart, soundfile, numpy, ffmpeg (system) \\
-corpus & python-docx, pypdf, ctc-forced-aligner (or torchaudio pinned), uroman, torch (CPU) \\
+corpus & python-docx, pypdf, transformers\,<\,5 (aligner model), torch; librosa + soundfile for audio \\
+pilot (now) & \texttt{requirements-\allowbreak{}pilot.\allowbreak{}txt}: the annotation requirements plus transformers, faster-whisper, jiwer \\
 inference & faster-whisper, silero-vad (onnx), python-docx (export) \\
 ui & gradio≥4 \\
 eval & jiwer \\
@@ -325,6 +342,7 @@ Requirements are split into \texttt{requirements/\allowbreak{}\{core,\allowbreak
 
 \hypertarget{splits-answers-how-should-we-split}{%
 \subsection{Splits (answers ``how should we split?'')}\label{splits-answers-how-should-we-split}}
+\kctchanged{1.1}
 
 \begin{itemize}
 \tightlist
@@ -391,6 +409,7 @@ Reports are broken down by domain and by flag (clean / noisy / overlap).
 
 \hypertarget{testing-strategy}{%
 \section{Testing strategy}\label{testing-strategy}}
+\kctchanged{1.2}
 
 \begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.110}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.890}}@{}}
 \toprule\noalign{}
@@ -401,8 +420,47 @@ Level & What \\
 \endlastfoot
 Unit & Text normaliser, segmenter on synthetic word timings, priority, grouped split (asserts no recording in two splits), metric functions (hand-computed cases incl. switch points), guards \\
 Integration & A 60 s synthetic fixture (TTS or public-domain clip + transcript) goes through align → segment → dataset export, all on CPU in \textless{} 2 min \\
+Pilot (now) & 24 tests in \texttt{tests/\allowbreak{}pilot}: text preparation on real transcript quirks, the Viterbi, segmentation, metrics, file pairing, a 200-turn alignment regression with unspoken turns, and an end-to-end run with a fake aligner and fake Whisper \\
+Smoke test & \texttt{pilot.\allowbreak{}make\_\allowbreak{}mock}: a 4-minute interview stitched from public FLEURS Kiswahili and English clips, with one written-but-unspoken turn that must be the only one flagged \\
 API & FastAPI TestClient: revision conflict (409), consent enforcement, job lifecycle \\
 Model & The Kaggle notebook prints dev WER. \texttt{evaluate} reproduces the same WER locally within ±0.5 absolute \\
 CI & GitHub Actions: ruff + pytest (unit + integration with a tiny aligner mock) on Ubuntu, Python 3.10 \\
 \end{longtable}
+
+\kctchangelog
+\begin{kctversions}
+1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
+1.1 & 2026-09-24 01:53 & \texttt{695b407}, \texttt{8a3be55} & Splits sized for the real corpus (11 recordings, 8~h~56~min); split by speaker group. \\
+1.2 & 2026-09-24 22:26 & this commit & Pilot results: aligner implementation, text preparation, two-pass long-form alignment, dependencies, tests. \\
+\end{kctversions}
+
+\kctchange{1.2}{§2.2 Chosen models: aligner row}{chosen-models}
+ {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{74}{74}{v1.1 source, line 74} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
+ {``MMS-300m forced-alignment model + uroman romaniser (via \texttt{ctc-forced-aligner}, or torchaudio MMS\_FA pinned).''}
+ {The same MMS-300m aligner, loaded with \texttt{transformers}; our own NumPy Viterbi; no uroman (NFKD normalisation). Removes the torchaudio deprecation risk and enables two-pass anchoring.}
+
+\kctchange{1.2}{§4.2 Text normalisation for alignment}{text-normalisation-for-alignment-a-separate-text-never-shown-as-the-label}
+ {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{156}{171}{v1.1 source, lines 156--171} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
+ {Remove bracketed annotations; romanise with uroman; verbalise numbers with English/Kiswahili candidates chosen by the aligner; keep a word-index map.}
+ {Recognises the marker forms found in the real transcript and \textbf{keeps their timestamps}; treats \texttt{P7}-style participant references as redactions; splits false starts (\texttt{tuta--tutaanza}); records that number verbalisation is still planned and the pilot interpolates digits and flags \texttt{has\_number}.}
+
+\kctchange{1.2}{§4.3 Long-form alignment}{long-form-alignment}
+ {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{173}{186}{v1.1 source, lines 173--186} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
+ {``Alignment is turn-anchored: each transcript turn is aligned inside a search window around its expected position (moving anchor)\ldots{} score (mean frame log-posterior\ldots) A turn whose mean confidence is below θ (initially 0.5) is flagged \texttt{low\_alignment}.''}
+ {Relative confidence on informative frames; pass 1 trusts only confident anchor turns (length-dependent bar); pass 2 aligns each block between anchors, split at transcript timestamps; backwards timings dropped. On NRCCW\_KSM09: words with timings 6\,643 → 11\,590 of 12\,305; segment hours 1.04 → 1.70; clean hours 0.82 → 0.91; no word over 30~s from a transcriber timestamp (was 2 of 14 placed); held-out median error 1.3~s.}
+
+\kctchange{1.2}{§7 Dependencies}{dependencies}
+ {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{312}{318}{v1.1 source, lines 312--318} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
+ {Corpus group: ``python-docx, pypdf, ctc-forced-aligner (or torchaudio pinned), uroman, torch (CPU)''.}
+ {Corpus group uses \texttt{transformers}; new \emph{pilot} row for \texttt{requirements-pilot.txt} (transformers, faster-whisper, jiwer).}
+
+\kctchange{1.2}{§10 Testing strategy}{testing-strategy}
+ {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{402}{407}{v1.1 source, lines 402--407} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
+ {Unit, integration, API, model and CI rows only (all planned).}
+ {Adds what exists now: the 24 pilot tests and the FLEURS mock-interview smoke test.}
+
+\kctchange{1.1}{§8.1 Splits}{splits-answers-how-should-we-split}
+ {\kctsrc{053e09d4042e52bc8dfa98423c13d99a42a60109}{02_TRD.tex}{334}{341}{v1.0 source, lines 334--341} \textperiodcentered\ \href{archive/v1.0/02_TRD.pdf}{v1.0 PDF}}
+ {``Target: test ≈ 3 h from ≥ 15 recordings, dev ≈ 2--3 h from ≥ 10 recordings. Everything else is train. With 40 h that is about 85/7/8.''}
+ {Keeps that as the long-run target and adds the v1 split for the real corpus (11 recordings, 8~h~56~min): test 2 recordings (≈~1.5~h), dev 1 (≈~50~min), train 8 (≈~6.5~h), with 3-fold leave-two-recordings-out cross-validation. Recordings sharing a person form a \emph{speaker group} that never spans splits (naming convention plus an ECAPA speaker-embedding check).}
 \end{document}

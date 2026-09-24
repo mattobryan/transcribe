@@ -127,4 +127,36 @@
 \RequirePackage[most]{tcolorbox}
 \newtcolorbox{kctnote}{colback=kctsurface,colframe=kctaccent,boxrule=0.6pt,
   arc=2pt,left=6pt,right=6pt,top=4pt,bottom=4pt,fontupper=\small}
+
+% ---------------------------------------------------------------- Versioning
+% Previous text of a section is linked on GitHub at the exact commit and lines,
+% plus an archived PDF of the previous version in ../pdf/archive/vX.Y/.
+\newcommand{\kctrepo}{https://github.com/mattobryan/transcribe/blob}
+% \kctsrc{commit}{file.tex}{first line}{last line}{link text}
+\newcommand{\kctsrc}[5]{\href{\kctrepo/#1/docs/latex/#2\#L#3-L#4}{#5}}
+
+% Change log: a version table, then one box per changed section.
+\newcommand{\kctchangelog}{%
+  \clearpage
+  \phantomsection\addcontentsline{toc}{section}{Change log}%
+  \section*{Change log}\label{changelog}%
+  Times are East Africa Time (EAT, UTC+3). Each entry names the affected section, quotes what it
+  said before and summarises what it says now, and links to the previous text: on GitHub at the
+  exact commit and lines, and as an archived PDF of the previous version.\par}
+\newenvironment{kctversions}{%
+  \par\small\rowcolors{2}{kctsurface}{kctbg}%
+  \begin{longtable}{@{}p{0.07\linewidth}p{0.2\linewidth}p{0.1\linewidth}p{0.55\linewidth}@{}}
+  \toprule\textbf{Version} & \textbf{Date (EAT)} & \textbf{Commit} & \textbf{Summary}\\\midrule\endhead
+  \bottomrule\endlastfoot}{\end{longtable}}
+% \kctchange{version}{section name}{label}{previous-text link}{before}{now}
+\newcommand{\kctchange}[6]{%
+  \begin{tcolorbox}[enhanced,breakable,colback=kctsurface,colframe=kctborder,boxrule=0.5pt,arc=2pt,
+    colbacktitle=kctbg,coltitle=kcttext,fonttitle=\small\bfseries,
+    title={v#1 \textperiodcentered\ \hyperref[#3]{#2}},left=6pt,right=6pt,top=3pt,bottom=4pt,fontupper=\small]
+  {\color{kctmuted}Previous text: #4}\par\smallskip
+  \textbf{\color{kctdanger}Before.} #5\par\smallskip
+  \textbf{\color{kctok}Now.} #6
+  \end{tcolorbox}}
+% Marks a section that changed, next to its heading.
+\newcommand{\kctchanged}[1]{\par\noindent{\footnotesize\color{kctaccent}Changed in v#1: see the \hyperref[changelog]{change log}.}\par}
 \endinput

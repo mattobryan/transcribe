@@ -1,0 +1,136 @@
+\documentclass[11pt]{article}
+\usepackage{kctdocs}
+\begin{document}
+\kcttitle{07}{Kaggle Runbook: Pilot Run}{%
+Status & Ready to use \\
+Version & 1.0 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Purpose & Run the pilot (alignment + zero-shot Whisper) for every recording on a Kaggle GPU, unattended \\
+Related & \href{02_TRD.pdf}{02 TRD} §4.3, \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} (Pilot), \href{STYLE_GUIDE.pdf}{Style Guide} \\
+}
+{\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
+\bigskip
+
+\section{What the run does}\label{what-the-run-does}
+
+One notebook cell clones this repository and runs \texttt{scripts/kaggle\_pilot.sh}, which:
+
+\begin{enumerate}[label=\arabic*.]
+\item installs the dependencies;
+\item prints the GPU and PyTorch versions;
+\item runs the 24 pilot tests and stops if any fail;
+\item checks that Whisper can use the GPU, falling back to CPU if it cannot;
+\item pairs every audio file with the DOCX of the same name under \texttt{/kaggle/input}, and for each pair runs the alignment (TRD §4.3), segmentation and zero-shot Whisper (small and large-v3-turbo; Swahili, English and auto-detect);
+\item writes \texttt{summary.md} across recordings plus a \texttt{report.md} per recording, and zips them into \texttt{/kaggle/\allowbreak{}working/\allowbreak{}pilot\_reports.zip}.
+\end{enumerate}
+
+Your hands-on time is about 10 minutes the first time and 2 minutes after that. The run itself takes roughly 45--90 minutes per two hours of audio on a T4 (an estimate, not yet timed on Kaggle) and uses 1--2 of the approximately 30 weekly GPU hours.
+
+\section{One-time setup}\label{one-time-setup}
+
+\subsection*{Step 1. Verify your phone number}
+Kaggle only allows GPU and Internet after phone verification.
+\begin{itemize}
+\item kaggle.com → your profile picture → \textbf{Settings} → \textbf{Phone verification} → verify.
+\item Skip this if you have done it before.
+\end{itemize}
+
+\section{Put the data on Kaggle}\label{data}
+
+\subsection*{Step 2. Create a private dataset}
+\begin{itemize}
+\item kaggle.com → \textbf{Create} (the + button, top left) → \textbf{New Dataset}.
+\item Drag in the audio and its transcript, e.g. \texttt{NRCCW\_ KSM09.MP3} and \texttt{NRCCW\_KSM09.docx}. Other recordings can go in the same dataset, each with its own DOCX.
+\item \textbf{Names must match}, ignoring capital letters, spaces, underscores, hyphens and dots. \texttt{NRCCW\_ KSM09.MP3} pairs with \texttt{NRCCW\_KSM09.docx}.
+\item Title: \texttt{kct-audio} (any name works).
+\item Visibility: \textbf{Private}. Check this: the recordings are research data.
+\item Click \textbf{Create} and wait until the upload finishes.
+\end{itemize}
+
+\section{Create the notebook}\label{notebook}
+
+\subsection*{Step 3. New notebook}
+kaggle.com → \textbf{Create} → \textbf{New Notebook}.
+
+\subsection*{Step 4. Attach the data and switch on GPU and Internet}
+\begin{itemize}
+\item Right-hand panel → \textbf{Add Input} (or \textbf{+ Add Data}) → \textbf{Your Datasets} → \texttt{kct-audio} → \textbf{Add}.
+\item Right-hand panel → \textbf{Session options} (or \textbf{Settings}): \textbf{Accelerator} = GPU T4 x2 (or GPU P100); \textbf{Internet} = On.
+\item If these options are greyed out, go back to Step 1.
+\end{itemize}
+
+\subsection*{Step 5. Paste the code}
+Delete any starter code in the first cell and paste exactly:
+\begin{lstlisting}
+!rm -rf transcribe && git clone -q --depth 1 -b matt/relaxed-meitner-2lfrx6 https://github.com/mattobryan/transcribe.git
+!cd transcribe && bash scripts/kaggle_pilot.sh
+\end{lstlisting}
+Optionally rename the notebook to \texttt{transcribe-pilot} by clicking its title.
+
+\section{Run it in the background}\label{run}
+
+\subsection*{Step 6. Commit}
+\begin{itemize}
+\item Top right → \textbf{Save Version} → choose \textbf{Save \& Run All (Commit)} → \textbf{Save}.
+\item You can close the tab. The run continues on Kaggle's servers.
+\end{itemize}
+
+\subsection*{Step 7 (optional). Check progress}
+\begin{itemize}
+\item Your notebook → \textbf{Versions} (clock icon) → the running version → \textbf{Logs}.
+\item The log moves through \texttt{== [1/5] Installing} to \texttt{== [5/5] Pilot \ldots}.
+\item Near the start, look for \texttt{24 passed} (tests OK) and \texttt{Whisper device: cuda} (GPU OK).
+\end{itemize}
+
+\section{Collect the results}\label{results}
+
+\subsection*{Step 8. Download and send}
+\begin{itemize}
+\item When the version shows \textbf{Complete}: open it → \textbf{Output} tab → download \texttt{pilot\_reports.zip}.
+\item Unzip it and send \texttt{pilot/summary.md} and each \texttt{pilot/<recording>/report.md}.
+\item The zip holds text and numbers only (reports, alignment and segment lists), no audio.
+\end{itemize}
+
+\section{Later runs}\label{later-runs}
+
+\begin{itemize}
+\item \textbf{New recordings:} open the dataset → \textbf{New Version} → add the files → \textbf{Create}; then open the notebook → \textbf{Save Version} → \textbf{Save \& Run All}. Every run clones the branch afresh, so it always has the latest fixes.
+\item \textbf{Faster or narrower runs:} replace the second code line with one of these.
+\end{itemize}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.7\linewidth}@{}}
+\toprule\noalign{}
+Goal & Second line \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Quick check (about 15 min) & \texttt{!cd transcribe \&\& MODELS=small LANGS=sw bash scripts/\allowbreak{}kaggle\_pilot.sh} \\
+One recording only & \texttt{!cd transcribe \&\& ONLY=NRCCW\_KSM09 bash scripts/\allowbreak{}kaggle\_pilot.sh} \\
+Sample of chunks & \texttt{!cd transcribe \&\& MAX\_SEGMENTS=200 bash scripts/\allowbreak{}kaggle\_pilot.sh} \\
+\end{longtable}
+
+\section{Troubleshooting}\label{troubleshooting}
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{0.38\linewidth}>{\raggedright\arraybackslash}p{0.57\linewidth}@{}}
+\toprule\noalign{}
+What you see & What to do \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+GPU or Internet options greyed out & Verify your phone (Step 1). \\
+\texttt{Could not resolve host github.com} & Internet is off: switch it on (Step 4) and commit again. \\
+\texttt{Found 0 audio/transcript pairs} & The dataset is not attached (Step 4), or the audio and DOCX names do not match. \\
+\texttt{transcript without audio} / \texttt{audio without transcript} & A name mismatch for that file; rename it in a new dataset version. \\
+\texttt{Whisper device: cpu} & The run still works, just slower. Send the log lines just above it. \\
+A test fails, or a red error & Download the log (Logs tab, or \texttt{kaggle\_run.log} in the output) and send the last 40 lines. \\
+The version fails with no log & Kaggle's 12-hour or weekly quota limit: rerun with \texttt{MODELS=small}. \\
+\end{longtable}
+
+\kctchangelog
+\begin{kctversions}
+1.0 & 2026-09-24 22:26 & this commit & First version: step-by-step Kaggle run of the pilot. \\
+\end{kctversions}
+
+No changes since version 1.0. Later changes are recorded here, one entry per affected section, with a link to the previous text.
+\end{document}

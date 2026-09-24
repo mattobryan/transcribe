@@ -3,6 +3,7 @@
 \begin{document}
 \kcttitle{05}{Backend Schema}{%
 Status & Draft v1 \\
+Version & 1.0 \textperiodcentered\ 2026-09-24 00:36 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Database & SQLite 3 (WAL mode) via SQLAlchemy 2 + Alembic. Portable to PostgreSQL without schema changes (no SQLite-only types; JSON is stored as TEXT with CHECK \texttt{json\_\allowbreak{}valid}, which becomes JSONB on Postgres) \\
 Related & \href{02_TRD.pdf}{02 TRD}, \href{04_APP_FLOW.pdf}{04 App Flow} \\
 }
@@ -453,4 +454,11 @@ Current (\texttt{audio.\allowbreak{}json} / \texttt{transcript.\allowbreak{}json
 \texttt{segments[]} with \texttt{status=\allowbreak{}approved} & \texttt{segments} (origin=\texttt{vad}) + revision r1 (\texttt{source=\allowbreak{}human}, status approved) \\
 \texttt{asr\_\allowbreak{}hypothesis}, \texttt{wer} & Ignored (no model existed) \\
 \end{longtable}
+
+\kctchangelog
+\begin{kctversions}
+1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
+\end{kctversions}
+
+No changes since version 1.0. Later changes are recorded here, one entry per affected section, with a link to the previous text.
 \end{document}

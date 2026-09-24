@@ -3,6 +3,7 @@
 \begin{document}
 \kcttitle{04}{Application Flow}{%
 Status & Draft v1 \\
+Version & 1.2 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Related & \href{03_UI_UX_DESIGN.pdf}{03 UI/UX}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -16,6 +17,7 @@ The system has two loops that meet at the corpus:
 
 \hypertarget{flow-a-import-and-align-a-transcribed-recording}{%
 \section{Flow A: Import and align a transcribed recording}\label{flow-a-import-and-align-a-transcribed-recording}}
+\kctchanged{1.2}
 
 \begin{figure}[!htbp]\centering
 \resizebox{\ifdim\width>\linewidth\linewidth\else\width\fi}{!}{\input{figures/seq_import}}
@@ -164,4 +166,15 @@ Model load & CT2 files missing & The model is marked \texttt{broken}; Transcribe
 Kaggle registration & Dataset hash mismatch & Registration rejected with the expected vs. found hash \\
 Disk full & Write failure & The job fails cleanly; the UI shows the storage usage panel \\
 \end{longtable}
+
+\kctchangelog
+\begin{kctversions}
+1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
+1.2 & 2026-09-24 22:26 & this commit & Flow A diagram: alignment step renamed to match TRD §4.3 v1.2. \\
+\end{kctversions}
+
+\kctchange{1.2}{Flow A: Import and align (Figure 2)}{flow-a-import-and-align-a-transcribed-recording}
+ {\href{\kctrepo/8a3be55a33b1a843a27d87795a74872523d940bb/docs/latex/figures/seq_import.tex\#L33}{v1.1 source, figures/seq\_import.tex line 33} \textperiodcentered\ \href{archive/v1.1/04_APP_FLOW.pdf}{v1.1 PDF}}
+ {Worker step: ``decode 16k mono → normalise text → emissions → turn-anchored alignment''.}
+ {``\ldots\ → emissions → two-pass alignment (anchors, then blocks bounded by transcript timestamps)'', as validated in the pilot (\href{02_TRD.pdf}{TRD} §4.3).}
 \end{document}
