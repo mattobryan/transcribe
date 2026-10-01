@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transcription</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/">Transcription</a>
+  <span id="crumb" class="crumb"></span>
+  <span class="spacer"></span>
+  <span id="headerStats" class="muted"></span>
+  <div id="exportMenu" class="export hidden">
+    <span class="muted">Export:</span>
+    <a id="exportTxt" class="btn small ghost">TXT</a>
+    <a id="exportSrt" class="btn small ghost">SRT</a>
+    <a id="exportJson" class="btn small ghost">JSON</a>
+  </div>
+</header>
+
+<!-- 1. Load audio -->
+<main id="viewUpload" class="view">
+  <section class="card upload">
+    <h1>Transcription</h1>
+    <label id="drop" class="drop" for="file">
+      <input id="file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.mp4,.ogg,.opus,.flac,.aac,.wma">
+      <strong>Load audio</strong>
+      <span class="muted">Drop a file here or click to choose. Any audio or video format.</span>
+    </label>
+    <div id="chosen" class="chosen hidden">
+      <div><strong id="chosenName"></strong> <span id="chosenSize" class="muted"></span></div>
+      <audio id="preview" controls preload="metadata"></audio>
+      <div class="options">
+        <label>Language
+          <select id="language">
+            <option value="sw" selected>Kiswahili + English (recommended)</option>
+            <option value="en">English</option>
+            <option value="auto">Detect automatically</option>
+          </select>
+        </label>
+        <label>Model
+          <select id="model">
+            <option value="small" selected>Whisper small (faster)</option>
+            <option value="large-v3-turbo">Whisper large-v3-turbo (more accurate, slower)</option>
+          </select>
+        </label>
+        <label class="check"><input id="speakers" type="checkbox" checked> Label speakers when possible</label>
+      </div>
+      <button id="transcribe" class="btn primary big">Transcribe</button>
+      <div id="uploadBar" class="bar hidden"><div></div></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Recent transcriptions</h2>
+    <ul id="sessions" class="sessions"><li class="muted">None yet.</li></ul>
+  </section>
+</main>
+
+<!-- 2. In progress -->
+<main id="viewProgress" class="view hidden">
+  <section class="card progress">
+    <div class="spinner" aria-hidden="true"></div>
+    <h1>Transcription in progress</h1>
+    <p>Please be patient. This runs in the background: you can leave this page and come back later from
+      <a href="#/">Recent transcriptions</a>.</p>
+    <p id="stage" class="stage"></p>
+    <div class="bar"><div id="progressFill"></div></div>
+    <p id="eta" class="muted"></p>
+    <p id="failure" class="error hidden"></p>
+  </section>
+</main>
+
+<!-- 3. Correct -->
+<main id="viewEdit" class="view edit hidden">
+  <aside class="chunks"><ol id="chunkList"></ol></aside>
+  <section class="editor">
+    <div class="chunkhead">
+      <strong id="chunkTitle"></strong>
+      <span id="chunkTime" class="muted"></span>
+      <span id="chunkSpeaker" class="tag hidden"></span>
+      <span id="chunkState" class="tag hidden"></span>
+    </div>
+    <div class="player">
+      <button id="playBtn" class="btn round" title="Play / pause (Esc)">▶</button>
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Position in chunk">
+      <span id="clock" class="mono muted">0:00 / 0:00</span>
+      <span id="speed" class="mono speed" title="F3 slower, F4 faster">1.00×</span>
+      <audio id="audio" preload="auto"></audio>
+    </div>
+    <textarea id="text" spellcheck="false" aria-label="Transcript of this chunk"></textarea>
+    <details class="original"><summary>Model text</summary><p id="modelText" class="muted"></p></details>
+    <div class="actions">
+      <button id="prevBtn" class="btn ghost">← Previous</button>
+      <span id="saveState" class="muted"></span>
+      <button id="nextBtn" class="btn primary">Save &amp; next →</button>
+    </div>
+    <div id="learned" class="learned hidden"></div>
+    <footer class="keys">
+      <span><kbd>Esc</kbd> play / pause</span>
+      <span><kbd>F1</kbd> back 3 s</span>
+      <span><kbd>F2</kbd> forward 3 s</span>
+      <span><kbd>F3</kbd> slower</span>
+      <span><kbd>F4</kbd> faster</span>
+      <span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> save &amp; next</span>
+      <span><kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> previous / next</span>
+    </footer>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

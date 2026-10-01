@@ -3,8 +3,8 @@
 \begin{document}
 \kcttitle{03}{UI/UX Design}{%
 Status & Draft v1 \\
-Version & 1.0 \textperiodcentered\ 2026-09-24 00:36 \textperiodcentered\ \hyperref[changelog]{change log} \\
-Stack & Gradio Blocks mounted inside FastAPI (v1). Custom React front end only if Gradio blocks a P0 requirement \\
+Version & 1.1 \textperiodcentered\ 2026-10-02 00:34 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Stack & FastAPI backend serving a plain HTML/CSS/JavaScript page (no framework); built first for the Transcribe surface (\texttt{python -m transcribe.app}) \\
 Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -83,56 +83,86 @@ Top bar:  [Transcribe] [Corpus Studio] [Models & Evaluation]      active model: 
 
 \hypertarget{transcribe-new-transcription}{%
 \subsection{Transcribe: New transcription}\label{transcribe-new-transcription}}
+\kctchanged{1.1}
+
+Two pages: \textbf{Load audio}, then \textbf{Transcription in progress}.
 
 \begin{lstlisting}
 +------------------------------------------------------------------+
-|  Drop audio or video here, or [Browse]                           |
-|  WAV MP3 M4A MP4 OGG FLAC · up to 3 h                            |
+| Transcription                                                    |
+| +--------------------------------------------------------------+ |
+| |                       Load audio                             | |
+| |   Drop a file here or click to choose. Any audio or video.   | |
+| +--------------------------------------------------------------+ |
+| KSM09.mp3  31.2 MB      [ > preview player ................. ] |
+| Language [Kiswahili + English v]  Model [Whisper small v]        |
+| [x] Label speakers when possible                                 |
+| [                       Transcribe                             ] |
 +------------------------------------------------------------------+
-|  Title  [____________________]   Domain [Interview v]            |
-|  Model  [whisper-small-kct-v1 (production) v]                    |
-|  [ ] Allow corrections to be added to training data (consent)    |
-|                                            [ Start transcription ]|
+| Recent transcriptions: KSM09 · 12 of 240 chunks corrected · ...  |
++------------------------------------------------------------------+
+
++------------------------------------------------------------------+
+|                         ( spinner )                              |
+|                  Transcription in progress                       |
+|  Please be patient. This runs in the background: you can leave   |
+|  this page and come back later from Recent transcriptions.       |
+|              Transcribing: chunk 37 of 240                       |
+|              [##########..........................]              |
+|                    About 14:20 left                              |
 +------------------------------------------------------------------+
 \end{lstlisting}
 
 \begin{itemize}
 \tightlist
 \item
-  The consent checkbox is off by default and maps to \texttt{consent\_\allowbreak{}scope}.
+  Any audio or video format is accepted (decoded with PyAV). The selected file can be previewed before uploading, and the upload shows its own progress bar.
 \item
-  After submitting, the user lands on the Jobs list with a progress bar: ``Transcribing 12:40 / 58:10 · ETA 18 min''.
+  The language setting defaults to Kiswahili + English, the setting that worked best on code-switched speech in the pilot; English and automatic detection are alternatives. The model is Whisper small (faster) or large-v3-turbo (more accurate, slower).
+\item
+  Speaker labels (Speaker 1, Speaker 2, \ldots) appear when pyannote is installed and a Hugging Face token is set; otherwise chunks have no speaker.
+\item
+  The progress page shows the stage (preparing audio, finding speech, transcribing chunk $n$ of $N$, identifying speakers) and an estimate of the time left, then opens the editor by itself.
 \end{itemize}
 
 \hypertarget{transcribe-transcript-editor}{%
 \subsection{Transcribe: Transcript editor}\label{transcribe-transcript-editor}}
+\kctchanged{1.1}
+
+Chunk by chunk: the audio is split at pauses into chunks of up to 30~s, and each chunk is played and corrected on its own.
 
 \begin{lstlisting}
-+------------------------------------------------------------------+
-| Sermon_2026-09-14.mp3 · 58:10 · whisper-small-kct-v1   [Export v]|
-+------------------------------------------------------------------+
-| ▶ ||  00:12:41 ──────────●──────────────────── 00:58:10   1.0x v |
-+----------------------+-------------------------------------------+
-| 00:12:31  S?         | Leo tunataka ku-focus kwa neno la Mungu,  |
-| 00:12:38  S?         | and I want you to open your Bibles        |
-|>00:12:41             | pale Mathayo sura ya tano. [edited]       |
-| 00:12:49             | Wale wa nyuma mnasikia? ░low confidence░ |
-+----------------------+-------------------------------------------+
-| Enter: play segment · Ctrl+S: save · Alt+Up/Down: prev/next      |
-| Ctrl+Shift+S: split at cursor · Ctrl+M: merge with next          |
-+------------------------------------------------------------------+
++---------------------+--------------------------------------------+
+| Transcription  KSM09                  12 of 240 corrected  Export |
++---------------------+--------------------------------------------+
+|  ✓ 11 2:41 Leo tu.. | Chunk 13 of 240  3:05 - 3:19  Speaker 2    |
+| > · 13 3:05 Na sa.. |   [re-transcribed with your corrections]   |
+|  ↻ 14 3:20 Kwa sa.. | (||) ======●=================  0:06 / 0:14 |
+|  ↻ 15 3:34 Halafu.. |                                    1.10x   |
+|  · 16 3:51 ...      | +----------------------------------------+ |
+|                     | | Na sasa wale wa nyuma mnasikia vizuri? | |
+|                     | +----------------------------------------+ |
+|                     | > Model text                               |
+|                     | [<- Previous]      Saved   [Save & next ->]|
+|                     | Learned: sababa -> sababu (applied to 14   |
+|                     | chunks). Re-transcribing the next 3 chunks.|
+|                     | Esc play/pause  F1 back 3 s  F2 forward 3 s|
+|                     | F3 slower  F4 faster  Ctrl+Enter save&next |
++---------------------+--------------------------------------------+
 \end{lstlisting}
 
 \begin{itemize}
 \tightlist
 \item
-  Clicking a segment seeks the player there, and the current segment is highlighted during playback.
+  \textbf{Keys} (shared with the Corpus Studio reviewer, §4.5): \texttt{Esc} play/pause; \texttt{F1}/\texttt{F2} back/forward 3~s; \texttt{F3}/\texttt{F4} slower/faster (0.5$\times$--2$\times$, pitch preserved, kept across chunks); \texttt{Ctrl+Enter} save and next; \texttt{Alt+↑}/\texttt{Alt+↓} previous/next; \texttt{Ctrl+S} save.
 \item
-  Low-confidence words (word probability \textless{} 0.5) get a dotted \texttt{-\allowbreak{}-\allowbreak{}warn} underline, with the probability shown in a tooltip.
+  \textbf{No play button needed:} moving to another chunk saves the current edit and starts playing the new chunk. The next chunk's audio is preloaded.
 \item
-  Edited segments show an \texttt{[edited]} chip. Edits autosave after 1.5 s idle.
+  \textbf{Chunk list:} ✓ corrected, ↻ improved by your corrections, · model text only. Clicking a chunk opens it.
 \item
-  The Export menu offers TXT, SRT, VTT, DOCX, JSON, plus ``Promote edits to corpus'' when consent allows.
+  \textbf{Learning while you work} (TRD §5): a word corrected the same way twice becomes a rule applied to every chunk not yet edited; your recent corrected text and new words are given to Whisper as context, and the next 3 chunks are re-transcribed in the background. Improved text replaces a chunk's text only if you have not typed in it; a corrected chunk is never changed.
+\item
+  \textbf{Model text} (collapsed) shows Whisper's own output for comparison. Export: TXT (grouped by speaker), SRT, JSON.
 \end{itemize}
 
 \hypertarget{corpus-studio-import-recording-3-step-wizard}{%
@@ -225,8 +255,10 @@ Key & Action \\
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Tab / Shift+Tab & Play segment / replay last 3 s \\
-Ctrl+Enter & Approve \& next \\
+Esc & Play / pause (same as the transcript editor, §4.2) \\
+F1 / F2 & Back / forward 3 s \\
+F3 / F4 & Slower / faster \\
+Ctrl+Enter & Approve \& next (plays the next segment) \\
 Ctrl+S & Save draft \\
 Ctrl+Del & Reject \\
 Alt+↑ / Alt+↓ & Previous / next in queue \\
@@ -300,28 +332,54 @@ Offline aligner model missing & A setup checklist on first run (ffmpeg, aligner 
 \end{itemize}
 
 \hypertarget{gradio-feasibility-notes}{%
-\section{Gradio feasibility notes}\label{gradio-feasibility-notes}}
+\section{Implementation notes}\label{gradio-feasibility-notes}}
+\kctchanged{1.1}
 
-\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.231}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.769}}@{}}
+The pages are plain HTML, CSS and JavaScript served by FastAPI, not Gradio. Gradio could not reliably capture \texttt{F1}--\texttt{F4} (browsers use them for help, find and so on) or control playback speed, and the editor depends on both.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{0.3\linewidth}>{\raggedright\arraybackslash}p{0.65\linewidth}@{}}
 \toprule\noalign{}
 Need & Approach \\
 \midrule\noalign{}
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-Waveform + boundary nudging & \texttt{gr.\allowbreak{}Audio} waveform for playback; the boundaries are numeric fields with nudge buttons (slices are re-rendered server-side). No drag handles in v1 \\
-Diff rendering & \texttt{gr.\allowbreak{}HTML} with a server-side word diff (\texttt{difflib} on normalised tokens) \\
-Language span tagging & \texttt{gr.\allowbreak{}HighlightedText} for display; tagging through selection + hotkey handled by JS, which posts \texttt{(start,\allowbreak{} end,\allowbreak{} lang)} \\
-Global hotkeys & \texttt{gr.\allowbreak{}Blocks(js=\allowbreak{}.\allowbreak{}.\allowbreak{}.\allowbreak{})} keydown listener that clicks hidden buttons \\
-Multi-page & \texttt{gr.\allowbreak{}Tabs} for the three surfaces, with FastAPI serving the downloads \\
+Global hotkeys & One \texttt{keydown} listener that cancels the browser's default for Esc and F1--F4 \\
+Speed & \texttt{HTMLAudioElement.playbackRate} (pitch preserved), kept when moving between chunks \\
+Chunk audio & The server slices a 16~kHz WAV copy of the recording on request; the next chunk is preloaded \\
+Background work & Two worker threads: full transcriptions, and look-ahead re-transcription after each save \\
+Live updates & The editor checks every 4~s for chunks improved in the background \\
+Waveform and boundary dragging (Corpus Studio, later) & A small canvas widget on the same page; no framework needed \\
 \end{longtable}
-
-If boundary dragging or span tagging proves too clumsy in Gradio after M1, those two widgets move to a small custom component (\texttt{gradio cc}) rather than a full front-end rewrite.
 
 \kctchangelog
 \begin{kctversions}
 1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
+1.1 & 2026-10-02 00:34 & this commit & Transcription app built: plain HTML/JS instead of Gradio; new Load audio and progress pages; chunk-by-chunk editor with Esc/F1--F4 keys and live adaptation; same keys in the reviewer. \\
 \end{kctversions}
 
-No changes since version 1.0. Later changes are recorded here, one entry per affected section, with a link to the previous text.
+\kctchange{1.1}{Title block: Stack}{changelog}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{03_UI_UX_DESIGN.tex}{7}{7}{v1.0 source, line 7} \textperiodcentered\ \href{archive/v1.0/03_UI_UX_DESIGN.pdf}{v1.0 PDF}}
+ {``Gradio Blocks mounted inside FastAPI (v1). Custom React front end only if Gradio blocks a P0 requirement.''}
+ {FastAPI serving a plain HTML/CSS/JavaScript page, no framework.}
+
+\kctchange{1.1}{§4.1 Transcribe: New transcription}{transcribe-new-transcription}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{03_UI_UX_DESIGN.tex}{85}{107}{v1.0 source, lines 85--107} \textperiodcentered\ \href{archive/v1.0/03_UI_UX_DESIGN.pdf}{v1.0 PDF}}
+ {Upload form with title, domain, model and consent checkbox; the user then lands on a jobs list with a progress bar.}
+ {\emph{Load audio} page (any format, preview, language, model, speaker labels, \emph{Transcribe}) and a \emph{Transcription in progress} page with stage, progress and time left that opens the editor by itself.}
+
+\kctchange{1.1}{§4.2 Transcribe: Transcript editor}{transcribe-transcript-editor}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{03_UI_UX_DESIGN.tex}{108}{138}{v1.0 source, lines 108--138} \textperiodcentered\ \href{archive/v1.0/03_UI_UX_DESIGN.pdf}{v1.0 PDF}}
+ {One long transcript with a single player; Enter plays a segment, Ctrl+S saves, split/merge shortcuts, low-confidence underlines.}
+ {Chunk-by-chunk editor: Esc play/pause, F1/F2 back/forward 3~s, F3/F4 slower/faster; moving saves and auto-plays; chunks improve while you work (rules, Whisper prompt, look-ahead re-transcription). Split/merge and low-confidence underlines are deferred.}
+
+\kctchange{1.1}{§4.5 Segment reviewer: key map}{corpus-studio-segment-reviewer-primary-screen}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{03_UI_UX_DESIGN.tex}{223}{238}{v1.0 source, lines 223--238} \textperiodcentered\ \href{archive/v1.0/03_UI_UX_DESIGN.pdf}{v1.0 PDF}}
+ {``Tab / Shift+Tab: play segment / replay last 3 s''.}
+ {The same playback keys as the transcript editor: Esc, F1--F4; Ctrl+Enter also plays the next segment.}
+
+\kctchange{1.1}{§7 Gradio feasibility notes → Implementation notes}{gradio-feasibility-notes}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{03_UI_UX_DESIGN.tex}{303}{319}{v1.0 source, lines 303--319} \textperiodcentered\ \href{archive/v1.0/03_UI_UX_DESIGN.pdf}{v1.0 PDF}}
+ {How each need would be met in Gradio (waveform, diff, span tagging, global hotkeys via injected JS, tabs).}
+ {Why Gradio was dropped (F1--F4 and playback speed), and how each need is met in plain HTML/JS.}
 \end{document}

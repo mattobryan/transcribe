@@ -27,7 +27,7 @@ transcribe/
 |-- src/transcribe/
 |   |-- pilot/                # alignment, segmentation, zero-shot Whisper, reports, Kaggle batch
 |   |-- preprocessing/        # DOCX/PDF transcript parsers, energy VAD, chunk export, manifests
-|   |-- review/               # Gradio chunk-review app
+|   |-- app/                  # transcription app: upload, background transcription, chunk editor
 |   |-- script/               # CLIs: parse_transcript, prepare_audio, review, export_training_manifest
 |   `-- legacy/               # from-scratch CTC/Seq2Seq baseline: train, evaluate, infer
 |-- tests/                    # pilot/ and legacy/ test suites
@@ -59,6 +59,40 @@ Run the checks the same way CI does:
 ruff check .
 python -m pytest -q
 ```
+
+## Transcription app
+
+```bash
+python -m pip install -r requirements-pilot.txt     # once
+python -m transcribe.app                            # opens http://127.0.0.1:8000
+```
+
+1. **Load audio**: drop or choose any audio or video file, pick the language setting and model,
+   and press **Transcribe**.
+2. **Transcription in progress**: the audio is split into chunks at pauses (up to 30 s) and
+   transcribed with Whisper in the background. You can close the page; it keeps going. Speakers are
+   labelled when [pyannote](https://huggingface.co/pyannote/speaker-diarization-3.1) is installed and
+   `HF_TOKEN` is set (accept the model's terms on Hugging Face first); otherwise chunks have no label.
+3. **Correct**: each chunk plays with its text below it. Moving to another chunk saves your edit and
+   plays the new chunk.
+
+| Key | Action |
+|---|---|
+| `Esc` | Play / pause |
+| `F1` / `F2` | Back / forward 3 s |
+| `F3` / `F4` | Slower / faster (0.5x to 2x) |
+| `Ctrl+Enter` | Save and next (plays automatically) |
+| `Alt+Up` / `Alt+Down` | Previous / next chunk |
+| `Ctrl+S` | Save |
+
+**How your corrections help while you work** (no retraining; that happens in batches on Kaggle):
+- a word you correct the same way twice becomes a rule applied to every chunk you have not edited;
+- your recent corrected text and the new words you typed (names, hybrid spellings) are given to
+  Whisper as context, and the next 3 chunks are re-transcribed in the background before you reach them.
+  Chunks improved this way are marked ↻.
+
+Sessions are kept in `data/app/sessions/<id>/`. Export as TXT, SRT or JSON from the top bar. Every
+corrected chunk is training data: `python -m transcribe.db.migrate_json data/app/sessions/*/session.json`.
 
 ## Legacy baseline (from-scratch models)
 
@@ -117,8 +151,9 @@ Outputs in `data/pilot/NRCCW_KSM09/`:
 Review the pre-filled chunks and measure your speed:
 
 ```powershell
-.\.venv\Scripts\python.exe -m transcribe.script.review --manifest data/pilot/NRCCW_KSM09/review_manifest.json
-.\.venv\Scripts\python.exe -m transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
+.\.venv\Scripts\python.exe -m transcribe.app --open data/pilot/NRCCW_KSM09/review_manifest.json
+# after reviewing (the app prints the session id):
+.\.venv\Scripts\python.exe -m transcribe.pilot.review_stats data/app/sessions/<session id>/session.json
 ```
 
 The reports contain transcript text and numbers, not audio.
@@ -163,8 +198,7 @@ python -m transcribe.script.prepare_audio \
   --output-dir data/projects/NRCCW_KSM09/chunks \
   --manifest data/projects/NRCCW_KSM09/audio.json \
   --transcript-manifest data/projects/NRCCW_KSM09/transcript.json
-python -m transcribe.script.review \
-  --manifest data/projects/NRCCW_KSM09/audio.json
+python -m transcribe.app --open data/projects/NRCCW_KSM09/audio.json
 ```
 
 After reviewing and adding approved transcripts to the rich segment manifest:
@@ -217,5 +251,5 @@ Settings are in `config/default.yaml`. Key fields:
 ## Dependencies
 
 Grouped in `requirements/` (and as extras in `pyproject.toml`): `core` (transcript parsing, audio
-I/O), `pilot` (PyTorch, transformers, faster-whisper, jiwer), `ui` (Gradio), `legacy` (PyTorch,
+I/O), `pilot` (PyTorch, transformers, faster-whisper, jiwer), `ui` (FastAPI, Uvicorn), `legacy` (PyTorch,
 scikit-learn, edit-distance metrics, NLTK, PyYAML) and `dev` (pytest, ruff).

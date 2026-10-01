@@ -1,0 +1,99 @@
+"""Transcription app API end to end, with a fake Whisper and fake speech regions."""
+import io
+import time
+
+import numpy as np
+import soundfile as sf
+from fastapi.testclient import TestClient
+
+from transcribe.app.server import create_app
+
+SR = 16000
+REGIONS = [{"start": s, "end": s + 2.0} for s in (0.0, 5.5, 11.0, 16.5, 22.0, 27.5)]
+
+
+class FakeWhisper:
+    calls = []
+
+    def __init__(self, name):
+        self.name = name
+
+    def transcribe(self, audio, language, initial_prompt=None, hotwords=None):
+        FakeWhisper.calls.append({"prompt": initial_prompt, "hotwords": hotwords, "seconds": len(audio) / SR})
+        if initial_prompt:
+            return {"text": "ni kwa sababu ya maji", "detected_language": "sw"}
+        return {"text": "ni kwa sababa ya maji", "detected_language": "sw"}
+
+
+def wav_bytes(seconds=31.0):
+    rng = np.random.default_rng(0)
+    buffer = io.BytesIO()
+    sf.write(buffer, (rng.standard_normal(int(seconds * SR)) * 0.05).astype(np.float32), SR, format="WAV")
+    return buffer.getvalue()
+
+
+def wait(client, sid, predicate, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        session = client.get(f"/api/sessions/{sid}").json()
+        if predicate(session):
+            return session
+        time.sleep(0.1)
+    raise AssertionError(f"timed out; last status {session.get('status')}: {session.get('error')}")
+
+
+def test_upload_transcribe_correct_learn_export(tmp_path):
+    FakeWhisper.calls = []
+    app = create_app(tmp_path, transcriber_factory=FakeWhisper, segmenter=lambda audio: REGIONS)
+    client = TestClient(app)
+    assert "Transcription" in client.get("/").text
+
+    r = client.post("/api/sessions", files={"file": ("KSM 09.mp4.wav", wav_bytes(), "audio/wav")},
+                    data={"language": "sw", "model": "small", "speakers": "false"})
+    sid = r.json()["id"]
+    session = wait(client, sid, lambda s: s["status"] == "ready")
+    assert len(session["segments"]) == 6
+    assert all(s["transcript"] == "ni kwa sababa ya maji" for s in session["segments"])
+    assert [round(c["seconds"]) for c in FakeWhisper.calls] == [2] * 6
+
+    audio = client.get(f"/api/sessions/{sid}/chunks/1/audio")
+    assert audio.headers["content-type"] == "audio/wav"
+    clip, sr = sf.read(io.BytesIO(audio.content))
+    assert sr == SR and abs(len(clip) / SR - 2.0) < 0.01
+
+    # First correction: nothing learned yet, but look-ahead re-transcribes with the prompt.
+    r = client.put(f"/api/sessions/{sid}/chunks/0", json={"text": "Ni kwa sababu ya maji."}).json()
+    assert r["adaptation"]["rules"] == [] and r["lookahead"] == [1, 2, 3]
+    session = wait(client, sid, lambda s: s["segments"][3]["suggestion"] == "lookahead")
+    assert session["segments"][1]["transcript"] == "ni kwa sababu ya maji"
+    prompted = [c for c in FakeWhisper.calls if c["prompt"]]
+    assert prompted and prompted[0]["prompt"] == "kwa sababu ya maji." and "sababu" in prompted[0]["hotwords"]
+
+    # Chunk 4 (beyond the look-ahead) still has the raw "sababa": correcting it is the second
+    # consistent fix -> a rule, applied at once to chunk 5, which nobody has edited.
+    r = client.put(f"/api/sessions/{sid}/chunks/4", json={"text": "Ni kwa sababu ya maji."}).json()
+    assert ["sababa", "sababu", 2] in r["adaptation"]["rules"]
+    assert 5 in r["adapted"]
+    app.state.ahead.join()
+    assert client.get(f"/api/sessions/{sid}").json()["segments"][5]["transcript"] == "ni kwa sababu ya maji"
+
+    # The reviewer edits chunk 2; a later look-ahead for it must never overwrite the edit.
+    client.put(f"/api/sessions/{sid}/chunks/2", json={"text": "Ni kwa sababu ya mvua."})
+    app.state.ahead.put((sid, [2]))
+    app.state.ahead.join()
+    session = client.get(f"/api/sessions/{sid}").json()
+    assert session["segments"][2]["transcript"] == "Ni kwa sababu ya mvua."
+    assert session["segments"][2]["edited"] and session["segments"][2]["status"] == "approved"
+
+    txt = client.get(f"/api/sessions/{sid}/export?format=txt").text
+    assert "Ni kwa sababu ya mvua." in txt
+    srt = client.get(f"/api/sessions/{sid}/export?format=srt").text
+    assert "00:00:05,500 --> 00:00:07,500" in srt
+    assert client.get("/api/sessions").json()[0]["edited"] == 3
+
+
+def test_save_rejected_until_ready_and_bad_ids(tmp_path):
+    app = create_app(tmp_path, transcriber_factory=FakeWhisper, segmenter=lambda audio: REGIONS)
+    client = TestClient(app)
+    assert client.get("/api/sessions/does-not-exist").status_code == 404
+    assert client.get("/api/sessions/..%2Fetc").status_code == 404

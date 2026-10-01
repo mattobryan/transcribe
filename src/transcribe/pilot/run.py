@@ -453,7 +453,7 @@ def main() -> None:
         hypotheses = {i: o.get("text", "") for i, o in zip(first["ids"], first["outputs"])}
     if args.export_review:
         manifest = export_review(out, audio, args, turns, segments, hypotheses)
-        log(f"Review manifest: {manifest}")
+        log(f"Review manifest: {manifest} (open it with: python -m transcribe.app --open {manifest})")
 
     report = build_report(args, audio_seconds, turns, alignment, segments, eval_segments,
                           clean_ids, gaps, asr, gap_asr)

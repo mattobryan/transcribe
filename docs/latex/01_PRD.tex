@@ -5,7 +5,7 @@
 Product & Transcribe: Kenyan English--Kiswahili code-switching transcriber \\
 Owner & Project lead (sole developer/reviewer for v1) \\
 Status & Draft v1 \\
-Version & 1.0 \textperiodcentered\ 2026-09-24 00:36 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Version & 1.1 \textperiodcentered\ 2026-10-02 02:38 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Related & \href{00_PROBLEM_STATEMENT.pdf}{00 Problem Statement}, \href{02_TRD.pdf}{02 TRD}, \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -33,6 +33,7 @@ Persona & Context & Primary need \\
 
 \hypertarget{product-surfaces}{%
 \section{Product surfaces}\label{product-surfaces}}
+\kctchanged{1.1}
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
@@ -45,7 +46,7 @@ Persona & Context & Primary need \\
   \textbf{Models \& Evaluation:} register fine-tuned models, run evaluations, compare versions, choose the production model.
 \end{enumerate}
 
-All three are served by one local web app (FastAPI backend + Gradio UI) that runs on CPU. Training runs in Kaggle notebooks.
+All three are served by one local web app (FastAPI backend serving a plain HTML/JavaScript UI) that runs on CPU. Training runs in Kaggle notebooks.
 
 \hypertarget{scope}{%
 \section{Scope}\label{scope}}
@@ -269,7 +270,13 @@ See \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} for tasks and acce
 \kctchangelog
 \begin{kctversions}
 1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
+1.1 & 2026-10-02 02:38 & this commit & UI technology: plain HTML/JavaScript instead of Gradio (see UI/UX v1.1). \\
 \end{kctversions}
 
-No changes since version 1.0. Later changes are recorded here, one entry per affected section, with a link to the previous text.
+\kctchange{1.1}{§3 Product surfaces}{product-surfaces}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{01_PRD.tex}{48}{48}{v1.0 source, line 48} \textperiodcentered\ \href{archive/v1.0/01_PRD.pdf}{v1.0 PDF}}
+ {``All three are served by one local web app (FastAPI backend + Gradio UI) that runs on CPU.''}
+ {``\ldots (FastAPI backend serving a plain HTML/JavaScript UI) \ldots''. Gradio could not capture F1--F4 or control playback speed.}
+
+
 \end{document}

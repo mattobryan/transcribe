@@ -11,6 +11,11 @@ from typing import Dict, List, Optional
 import numpy as np
 
 SR = 16000
+TEMPERATURES = (0.0, 0.4, 0.8)
+
+
+def max_tokens(seconds: float) -> int:
+    return int(min(440, 24 + 12 * seconds))
 
 
 def cuda_available() -> bool:
@@ -36,22 +41,30 @@ class WhisperRunner:
         return WhisperModel(self.name, device=self.device, compute_type=compute_type,
                             cpu_threads=self.threads)
 
-    def transcribe(self, audio: np.ndarray, language: Optional[str]) -> Dict:
+    def transcribe(self, audio: np.ndarray, language: Optional[str], initial_prompt: Optional[str] = None,
+                   hotwords: Optional[str] = None) -> Dict:
+        """``initial_prompt`` and ``hotwords`` bias decoding towards a reviewer's
+        recent corrections (vocabulary, spellings) without changing weights."""
         try:
-            return self._transcribe(audio, language)
+            return self._transcribe(audio, language, initial_prompt, hotwords)
         except RuntimeError as exc:
             if self.device != "cuda":
                 raise
             print(f"    GPU transcription failed ({exc}); falling back to CPU int8", flush=True)
             self.device = "cpu"
             self.model = self._load()
-            return self._transcribe(audio, language)
+            return self._transcribe(audio, language, initial_prompt, hotwords)
 
-    def _transcribe(self, audio: np.ndarray, language: Optional[str]) -> Dict:
+    def _transcribe(self, audio: np.ndarray, language: Optional[str], initial_prompt: Optional[str] = None,
+                    hotwords: Optional[str] = None) -> Dict:
         segments, info = self.model.transcribe(
             audio.astype(np.float32), language=language, task="transcribe",
             beam_size=5, condition_on_previous_text=False, vad_filter=False,
-            without_timestamps=True,
+            without_timestamps=True, initial_prompt=initial_prompt or None, hotwords=hotwords or None,
+            # Repetition loops ("kwa kwa kwa ...") otherwise run to 448 tokens and are retried at
+            # six temperatures, taking minutes per chunk: cap the length by the audio duration
+            # (no speaker exceeds ~12 tokens/s) and retry at three temperatures only.
+            max_new_tokens=max_tokens(len(audio) / SR), temperature=TEMPERATURES,
         )
         parts = list(segments)
         text = " ".join(part.text.strip() for part in parts).strip()

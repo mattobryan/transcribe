@@ -1,6 +1,6 @@
 \begin{tikzpicture}[node distance=0.6cm and 0.9cm]
   % Local machine
-  \node[kbox,text width=3.2cm] (ui) {Gradio UI\\{\scriptsize Transcribe · Corpus Studio · Models}};
+  \node[kbox,text width=3.2cm] (ui) {Web UI\\{\scriptsize HTML/JS: Transcribe · Corpus Studio · Models}};
   \node[kbox,right=of ui] (api) {FastAPI\\{\scriptsize /api/v1}};
   \node[kbox,right=of api,text width=2.6cm] (w) {Worker process\\{\scriptsize DB-backed job queue}};
   \node[kstore,below=1.1cm of api] (db) {SQLite\\{\scriptsize transcribe.db}};

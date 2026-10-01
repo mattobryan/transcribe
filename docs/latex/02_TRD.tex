@@ -3,7 +3,7 @@
 \begin{document}
 \kcttitle{02}{Technical Requirements Document (TRD)}{%
 Status & Draft \\
-Version & 1.3 \textperiodcentered\ 2026-10-02 00:13 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Version & 1.4 \textperiodcentered\ 2026-10-02 02:38 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -243,6 +243,7 @@ Batching: windows run sequentially, with \texttt{cpu\_\allowbreak{}threads =\all
 
 \hypertarget{processes}{%
 \subsection{Processes}\label{processes}}
+\kctchanged{1.4}
 
 \begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.104}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.207}}>{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.689}}@{}}
 \toprule\noalign{}
@@ -251,7 +252,7 @@ Process & Command & Responsibility \\
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-\texttt{api} & \texttt{python -\allowbreak{}m transcribe.\allowbreak{}api} & FastAPI + Gradio mounted at \texttt{/\allowbreak{}}. Handles CRUD and enqueues jobs \\
+\texttt{api} & \texttt{python -\allowbreak{}m transcribe.\allowbreak{}api} & FastAPI serving the HTML/JS pages at \texttt{/\allowbreak{}} and \texttt{/api}. Handles CRUD and enqueues jobs \\
 \texttt{worker} & \texttt{python -\allowbreak{}m transcribe.\allowbreak{}worker} & Polls \texttt{jobs} (\texttt{status=\allowbreak{}'queued'}), runs alignment, transcription, evaluation and export, and heartbeats \\
 \end{longtable}
 
@@ -290,9 +291,29 @@ POST & \texttt{/\allowbreak{}transcriptions/\allowbreak{}\{id\}/\allowbreak{}pro
 
 Optimistic concurrency: every revision POST carries \texttt{base\_\allowbreak{}revision\_\allowbreak{}id}. A mismatch returns 409, so a second browser tab cannot overwrite silently.
 
+\hypertarget{transcription-app}{%
+\subsection{Transcription app and live adaptation}\label{transcription-app}}
+\kctchanged{1.4}
+
+\texttt{python -m transcribe.app} serves three pages: \emph{Load audio}, \emph{Transcription in progress} and the chunk editor (UI/UX §4.1--4.2). Sessions live in \texttt{data/app/sessions/<id>/} (original upload, 16~kHz WAV, \texttt{session.json}); \texttt{session.json} has the shape of the pilot's review manifest, so \texttt{migrate\_json} and \texttt{review\_stats} read it unchanged. Two worker threads share one Whisper instance per model: one runs whole transcriptions, the other runs look-ahead re-transcription.
+
+\textbf{Pipeline.} Any audio or video is decoded with PyAV to 16~kHz mono; Silero VAD finds speech; regions are merged into chunks of up to 30~s, closing a chunk at a pause of at least 0.6~s once it is 15~s long; each chunk is transcribed with the chosen language, a token cap proportional to its duration (about 12 tokens/s) and three retry temperatures, which stops repetition loops from running for minutes; speakers are labelled by pyannote when installed and \texttt{HF\_TOKEN} is set.
+
+\textbf{Learning while the reviewer works.} Weights are not changed live. A fine-tuning step on ten short clips overfits them and can make the next chunks worse, with no held-out check to notice; on a CPU one step takes about a minute. Instead, after each save:
+\begin{enumerate}
+\tightlist
+\item
+  \textbf{Correction rules.} One-word substitutions the reviewer made at least twice (\emph{sababa} → \emph{sababu}), and kept uncorrected less often than corrected, are applied to every chunk not yet edited.
+\item
+  \textbf{Prompt and hotwords.} The last 220 characters of corrected text, and words the reviewer typed that the model never produced (names, hybrid spellings), are passed to Whisper as \texttt{initial\_prompt} and \texttt{hotwords}.
+\item
+  \textbf{Look-ahead.} The next three unedited chunks are re-transcribed in the background with that context; a chunk the reviewer has edited is never overwritten, and an unedited chunk's text is replaced only on the server.
+\end{enumerate}
+Weights change in batches: every corrected chunk is training data for the Kaggle fine-tuning runs of Phase 4.
+
 \hypertarget{package-layout-target}{%
 \subsection{Package layout (target)}\label{package-layout-target}}
-\kctchanged{1.3}
+\kctchanged{1.4}
 
 \begin{lstlisting}
 src/transcribe/
@@ -307,19 +328,20 @@ src/transcribe/
   datasets/       # snapshot build, grouped split, HF export
   finetune/       # whisper_train.py, w2vbert_ctc_train.py (run inside Kaggle)
   evaluation/     # normalizer.py, metrics.py (WER/CER/switch-point/hallucination), report.py
-  ui/             # Gradio Blocks: transcribe.py, review.py, models.py, theme.py
+  app/            # transcription app (built): server, pipeline, adapt, store, static/ (HTML, CSS, JS)
+  ui/             # Corpus Studio and Models pages (later; same plain HTML/JS approach)
   legacy/         # ctc_model.py, seq2seq.py, trainer.py, data/ (unchanged behaviour)
 notebooks/kaggle/ # thin notebooks calling transcribe.finetune.*
 tests/
 \end{lstlisting}
 
-\textbf{Current layout (after Phase 0).} The package installs as \texttt{transcribe} (\texttt{python -m pip install -e .}); tools run as \texttt{python -m transcribe.\ldots}, without the old \texttt{src.} prefix or \texttt{sys.path} hacks. What exists today: \texttt{pilot/} (alignment, segmentation, metrics, Whisper runner, reports, Kaggle batch), \texttt{preprocessing/} (DOCX/PDF parsers, energy VAD, chunk export, manifests), \texttt{review/} (Gradio review app), \texttt{script/} (corpus CLIs) and \texttt{legacy/} (the from-scratch baseline: \texttt{models/}, \texttt{training/}, \texttt{data/}, \texttt{evaluation/}, \texttt{config.py}, and \texttt{train}, \texttt{evaluate}, \texttt{infer}). The pilot modules move into \texttt{corpus/} and \texttt{evaluation/} in Phases 1 and 3.
+\textbf{Current layout (after Phase 0).} The package installs as \texttt{transcribe} (\texttt{python -m pip install -e .}); tools run as \texttt{python -m transcribe.\ldots}, without the old \texttt{src.} prefix or \texttt{sys.path} hacks. What exists today: \texttt{pilot/} (alignment, segmentation, metrics, Whisper runner, reports, Kaggle batch), \texttt{app/} (the transcription app), \texttt{db/} (models, migrations, invariants), \texttt{preprocessing/} (DOCX/PDF parsers, energy VAD, chunk export, manifests), \texttt{script/} (corpus CLIs) and \texttt{legacy/} (the from-scratch baseline: \texttt{models/}, \texttt{training/}, \texttt{data/}, \texttt{evaluation/}, \texttt{config.py}, and \texttt{train}, \texttt{evaluate}, \texttt{infer}). The pilot modules move into \texttt{corpus/} and \texttt{evaluation/} in Phases 1 and 3.
 
 The package imports as \texttt{transcribe} (installed via \texttt{pip install -\allowbreak{}e .\allowbreak{}}). The \texttt{sys.\allowbreak{}path} / \texttt{src.\allowbreak{}} import hack is removed.
 
 \hypertarget{dependencies}{%
 \section{Dependencies}\label{dependencies}}
-\kctchanged{1.2}
+\kctchanged{1.4}
 
 \begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.196}}>{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.804}}@{}}
 \toprule\noalign{}
@@ -332,7 +354,7 @@ core & fastapi, uvicorn, sqlalchemy≥2, alembic, pydantic≥2, python-multipart
 corpus & python-docx, pypdf, transformers\,<\,5 (aligner model), torch; librosa + soundfile for audio \\
 pilot (now) & \texttt{requirements-\allowbreak{}pilot.\allowbreak{}txt}: the annotation requirements plus transformers, faster-whisper, jiwer \\
 inference & faster-whisper, silero-vad (onnx), python-docx (export) \\
-ui & gradio≥4 \\
+ui & fastapi, uvicorn, python-multipart \\
 eval & jiwer \\
 finetune (Kaggle only) & transformers, datasets, accelerate, evaluate, peft (v2), bitsandbytes (v2) \\
 legacy & librosa, scikit-learn, editdistance, nltk \\
@@ -437,7 +459,18 @@ CI & GitHub Actions: ruff + pytest (unit + integration with a tiny aligner mock)
 1.1 & 2026-09-24 01:53 & \texttt{695b407}, \texttt{8a3be55} & Splits sized for the real corpus (11 recordings, 8~h~56~min); split by speaker group. \\
 1.2 & 2026-09-24 22:26 & \texttt{c28ea1d} & Pilot results: aligner implementation, text preparation, two-pass long-form alignment, dependencies, tests. \\
 1.3 & 2026-10-02 00:13 & this commit & Phase 0: current package layout and requirement groups. \\
+1.4 & 2026-10-02 02:38 & this commit & Transcription app: web UI instead of Gradio, pipeline, live adaptation; layout and dependencies. \\
 \end{kctversions}
+
+\kctchange{1.4}{§6.4 Transcription app and live adaptation (new)}{transcription-app}
+ {none (new subsection) \textperiodcentered\ \href{archive/v1.3/02_TRD.pdf}{v1.3 PDF}}
+ {Nothing on the app or on learning from corrections.}
+ {How the app is built (pipeline, sessions, workers) and why corrections adapt prompts and rules, not weights, until the batch fine-tuning of Phase 4.}
+
+\kctchange{1.4}{§6.1 Processes; §6.3 Package layout; §7 Dependencies}{processes}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{02_TRD.tex}{254}{254}{v1.3 source, line 254} \textperiodcentered\ \href{archive/v1.3/02_TRD.pdf}{v1.3 PDF}}
+ {``FastAPI + Gradio mounted at \texttt{/}''; layout with \texttt{ui/ \# Gradio Blocks}; dependency row \texttt{ui: gradio$\ge$4}; current layout lists \texttt{review/} (Gradio review app).}
+ {FastAPI serves HTML/JS pages and \texttt{/api}; layout adds \texttt{app/} and the later \texttt{ui/} in plain HTML/JS; dependency row \texttt{fastapi, uvicorn, python-multipart}; \texttt{review/} removed (replaced by \texttt{app/}). Architecture figure relabelled ``Web UI''.}
 
 \kctchange{1.3}{§6.3 Package layout}{package-layout-target}
  {\kctsrc{c28ea1dac5c808cad195ed05f37979400d1a5f35}{02_TRD.tex}{294}{313}{v1.2 source, lines 294--313} \textperiodcentered\ \href{archive/v1.2/02_TRD.pdf}{v1.2 PDF}}

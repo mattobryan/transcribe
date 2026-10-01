@@ -1,3 +1,5 @@
-# Review UI.
+# Transcription app (FastAPI + a plain HTML/JS page). Transcribing also needs pilot.txt.
 -r core.txt
-gradio>=4.0,<6.0
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+python-multipart>=0.0.9

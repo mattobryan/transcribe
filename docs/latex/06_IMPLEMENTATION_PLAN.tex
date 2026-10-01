@@ -3,7 +3,7 @@
 \begin{document}
 \kcttitle{06}{Implementation Plan}{%
 Status & Draft \\
-Version & 1.3 \textperiodcentered\ 2026-10-02 00:13 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Version & 1.4 \textperiodcentered\ 2026-10-02 02:38 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Team & 1 developer/reviewer. CPU laptop + Kaggle GPU \\
 Related & All previous docs. Each task ID maps to PRD/TRD requirement IDs where applicable \\
 }
@@ -123,7 +123,7 @@ ID & Task & Acceptance \\
 \bottomrule\noalign{}
 \endlastfoot
 P2.1 & FastAPI app + the \texttt{/\allowbreak{}recordings}, \texttt{/\allowbreak{}segments}, \texttt{/\allowbreak{}review/\allowbreak{}queue} routes; revision endpoint with 409 on conflict & API tests including the conflict case \\
-P2.2 & Gradio shell with 3 tabs and theme tokens from \href{03_UI_UX_DESIGN.pdf}{03 UI/UX} §2, mounted in FastAPI & Loads at \texttt{127.\allowbreak{}0.\allowbreak{}0.\allowbreak{}1:\allowbreak{}8000} \\
+P2.2 & Web shell (plain HTML/JS served by FastAPI) with 3 sections and theme tokens from \href{03_UI_UX_DESIGN.pdf}{03 UI/UX} §2. The Transcribe section exists (\texttt{transcribe.app}) & Loads at \texttt{127.\allowbreak{}0.\allowbreak{}0.\allowbreak{}1:8000} \\
 P2.3 & Import wizard + recording overview with confidence timeline & Import → align → overview with no CLI \\
 P2.4 & Segment reviewer: pre-filled text, flags, boundary nudging with slice re-render, approve \& next, history/restore & A reviewer can complete 20 segments using only the keyboard \\
 P2.5 & Hotkey JS layer & All keys in the §4.5 table work \\
@@ -257,7 +257,7 @@ The aligner struggles on noisy or overlapping recordings & P1.7 precision \textl
 Review is slower than expected & P2.7 \textless{} 2× speed-up & Enable spot-check batch approval for segments with confidence \textgreater{} 0.9 \\
 Kaggle quota exhausted & Experiments queue up & Reduce to whisper-small only; shorter runs (2k steps); drop E5 \\
 v1 test WER far above 20\% & P4.5 & Error analysis first: label noise (fix data), translation (E5), hallucination (more non-speech samples), accent (more data). Do not jump to bigger models until the category is known \\
-Gradio limits the reviewer UX & P2.4 feedback & Custom Gradio component for the waveform only \\
+The plain HTML/JS reviewer is slow to extend & P2.4 feedback & Reuse the transcription app\textquotesingle s player, key map and chunk list; add the waveform as a small canvas widget \\
 \end{longtable}
 
 \hypertarget{immediate-next-steps}{%
@@ -283,7 +283,13 @@ Gradio limits the reviewer UX & P2.4 feedback & Custom Gradio component for the 
 1.1 & 2026-09-24 01:53 & \texttt{8a3be55} & Speaker grouping step before choosing test/dev. \\
 1.2 & 2026-09-24 22:26 & \texttt{c28ea1d} & New Pilot section with results; P1.3 and P1.7 updated; new immediate next steps. \\
 1.3 & 2026-10-02 00:13 & this commit & Task tracking moved to GitHub Issues, with the mapping from plan items to issues. \\
+1.4 & 2026-10-02 02:38 & this commit & Transcription app built early; P2.2 and one risk reworded (no Gradio). \\
 \end{kctversions}
+
+\kctchange{1.4}{Pilot: transcription app row; P2.2; risks}{pilot}
+ {\kctsrc{e5e32eda958656cd1ff0f0a05031425af003ced7}{06_IMPLEMENTATION_PLAN.tex}{126}{126}{v1.3 source, line 126} \textperiodcentered\ \href{archive/v1.3/06_IMPLEMENTATION_PLAN.pdf}{v1.3 PDF}}
+ {P2.2: ``Gradio shell with 3 tabs\ldots{} mounted in FastAPI''. Risk: ``Gradio limits the reviewer UX\ldots{} Custom Gradio component for the waveform only''. No transcription app.}
+ {P2.2: plain HTML/JS web shell, Transcribe section already built. Risk reworded: reuse the app's player and chunk list, waveform as a canvas widget. New Pilot-table row for \texttt{transcribe.app}.}
 
 \kctchange{1.3}{Task tracking (new)}{task-tracking}
  {none (new subsection) \textperiodcentered\ \href{archive/v1.2/06_IMPLEMENTATION_PLAN.pdf}{v1.2 PDF}}
