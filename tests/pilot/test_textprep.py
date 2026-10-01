@@ -57,8 +57,9 @@ def test_punctuation_only_tokens_join_neighbours():
 
 
 def test_false_starts_split():
-    words = turns_to_words([{"text": "Haya tuta--tutaanza, tuna--, kunasa\u2026 sawa", "speaker_id": "I", "spans": []}])
-    assert [w.norm for w in words] == ["haya", "tuta", "tutaanza", "tuna", "kunasa", "sawa"]
+    words = turns_to_words([{"text": "Haya tuta--tutaanza, tuna--, kunasa\u2026 sawa lingine?...Yes", "speaker_id": "I",
+                             "spans": []}])
+    assert [w.norm for w in words] == ["haya", "tuta", "tutaanza", "tuna", "kunasa", "sawa", "lingine", "yes"]
 
 
 def test_real_transcript_markers():

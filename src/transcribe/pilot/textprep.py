@@ -17,7 +17,7 @@ ANNOTATION = re.compile(
     re.IGNORECASE)
 WORD = re.compile(r"\S+")
 PARTICIPANT = re.compile(r"^P\d+[.,?!:;]*$")
-BREAK = re.compile(r"-{2,}|\u2014|\u2026")
+BREAK = re.compile(r"-{2,}|\u2014|\u2026|\.{2,}")
 
 
 @dataclass

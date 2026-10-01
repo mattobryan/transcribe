@@ -2,8 +2,8 @@
 \usepackage{kctdocs}
 \begin{document}
 \kcttitle{}{Transcription Style Guide}{%
-Status & v0.2: decisions confirmed; examples to be extended in Phase 0 (P0.8) \\
-Version & 1.2 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Status & v0.3: decisions confirmed; worked examples added (P0.8, awaiting your approval) \\
+Version & 1.3 \textperiodcentered\ 2026-10-02 00:20 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Applies to & Source transcripts (DOCX), reviewer edits in Corpus Studio, and training targets \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -132,11 +132,56 @@ Okay & \emph{okay} (not \emph{ok}, \emph{OK}, \emph{sawa} unless \emph{sawa} was
 Acronyms & Uppercase, no dots: \emph{KCSE}, \emph{NHIF}; letter-by-letter acronyms stay uppercase \\
 \end{longtable}
 
+\hypertarget{worked-examples}{%
+\section{Worked examples (from NRCCW\_KSM09)}\label{worked-examples}}
+\kctchanged{1.3}
+
+All examples are taken from the NRCCW\_KSM09 transcript (turn IDs in brackets). \emph{Italic} marks Kiswahili, as in the DOCX. The right-hand column shows how to write it, or how the tools handle it.
+
+\begin{longtable}[]{@{}>{\raggedright\arraybackslash}p{0.03\linewidth}>{\raggedright\arraybackslash}p{0.33\linewidth}>{\raggedright\arraybackslash}p{0.58\linewidth}@{}}
+\toprule\noalign{}
+\# & In the transcript & Write it as / what happens \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\multicolumn{3}{@{}l}{\textbf{Hybrid words} (§2)} \\
+1 & \emph{ina}affect, \emph{ina}cause & Correct: one word, only the Kiswahili prefix italic. Tagged \texttt{mixed}. \\
+2 & \emph{ka}-distance, \emph{ma}-drought & Write \emph{ka}distance, \emph{ma}drought: no hyphen inside a hybrid word. (Scoring ignores the hyphen, but alignment and training text should match.) \\
+3 & \emph{wa}scientist, \emph{ma}butchery & Correct: Kiswahili noun-class prefix plus English stem, one word. \\
+4 & \emph{kuemitt} & Spell the English stem correctly: \emph{ku}emit. \\
+5 & Utasonga (partly italic) & A purely Kiswahili word must be italic throughout: \emph{Utasonga}. Partial italics make it look like a hybrid. \\
+\multicolumn{3}{@{}l}{\textbf{Numbers} (§4): keep digits; the tools choose the spoken form} \\
+6 & \emph{tarehe} 15 \emph{mwezi wa nne} [p0399] & Kiswahili context: spoken form \emph{kumi na tano}; the aligner checks it against \emph{fifteen}. \\
+7 & remember 2019 [p0407] & Year: \emph{twenty nineteen}. \\
+8 & Level 1 hospitals [p0590] & Label + number: \emph{Level One}. \\
+9 & Number 1, industrialization. Number 2, \ldots{} [p0409] & Label + number: \emph{Number One}, \emph{Number Two}. \\
+10 & 200 Shillings [p0565] & Fine: \emph{two hundred shillings}. \\
+11 & 200 hundred shillings [p0566] & Transcription error (``hundred'' twice): write 200 shillings. \\
+12 & 3 quarter, \emph{nusu} acre [p0090] & Fine as written; spoken form \emph{three quarter}. \\
+\multicolumn{3}{@{}l}{\textbf{Breaks and pauses} (§3)} \\
+13 & \emph{tuta-{}-tutaanza} [p0002] & False start: correct. Split into \emph{tuta} + \emph{tutaanza}. \\
+14 & \emph{tuna-{}-, kunasa} [p0004] & Cut-off word: correct. \\
+15 & \emph{lingine}?\ldots Yes [p0098] & Put a space after the dots: \emph{lingine}?\ldots{} Yes. (The tools now split it either way.) \\
+16 & Mm-hmmm., Mmmh., Eeeh. & Backchannels: one spelling each, \emph{Mm-hmm}, \emph{Mmh}, \emph{Eeh}. They are kept but too short to anchor the alignment. \\
+\multicolumn{3}{@{}l}{\textbf{Markers} (§3)} \\
+17 & [Unclear - vernacular, 01:20-01:21] [p0007] & Good: kind, note and times. \\
+18 & [Unclear--02:30-02:32], [Unclear --02:33-02:37], (Unclear: 1:16:07-1:16:08]] & Standardise to [Unclear 2:30-2:32]: square brackets, one space, no dashes before the time. \\
+19 & [No speech - activity, 17:26-18:14] [p0235] & Good: keep long no-speech stretches with their times, even on their own line. \\
+20 & Yes, P5 and then P2. [p0012] & Participant references (anonymised names): keep as written. Chunks containing them are excluded from training. \\
+\end{longtable}
+
 \kctchangelog
 \begin{kctversions}
 1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (v0.1 of the guide). \\
 1.2 & 2026-09-24 22:26 & \texttt{c28ea1d} & Marker format with timestamps, participant references, false starts (from the NRCCW\_KSM09 pilot). \\
+1.3 & 2026-10-02 00:20 & this commit & New §6: 20 worked examples from the NRCCW\_KSM09 transcript (P0.8). \\
 \end{kctversions}
+
+\kctchange{1.3}{§6 Worked examples (new)}{worked-examples}
+ {none (new section) \textperiodcentered\ \href{archive/v1.2/STYLE_GUIDE.pdf}{v1.2 PDF}}
+ {No examples; the guide ended with §5 Other spelling conventions.}
+ {20 examples from the NRCCW\_KSM09 transcript: hybrid words (no hyphen, italics on the Kiswahili part only, spelling of the English stem), numbers in Kiswahili and English contexts, a duplicated ``200 hundred'', false starts and cut-offs, dots without a space, backchannel spellings, marker formats, and participant references.}
 
 \kctchange{1.2}{§3 Verbatim rules}{verbatim-rules}
  {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{STYLE_GUIDE.tex}{43}{57}{v1.1 source, lines 43--57} \textperiodcentered\ \href{archive/v1.1/STYLE_GUIDE.pdf}{v1.1 PDF}}
