@@ -1,7 +1,9 @@
-# Transcript parsing and audio I/O: everything the corpus tools need.
+# Transcript parsing, audio I/O and the database: everything the corpus tools need.
 numpy>=1.24,<2.3
 librosa>=0.10,<0.12
 soundfile>=0.12,<0.15
 numba>=0.57,<0.68
 python-docx>=1.1,<2.0
 pypdf>=5.0,<7.0
+sqlalchemy>=2.0,<3
+alembic>=1.13,<2
