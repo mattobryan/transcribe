@@ -1,0 +1,9 @@
+# From-scratch MFCC CNN-LSTM baseline (transcribe.legacy).
+-r core.txt
+torch>=2.0
+scipy>=1.10,<1.16
+scikit-learn>=1.1
+editdistance>=0.6
+python-Levenshtein>=0.12
+nltk>=3.7
+PyYAML>=6.0

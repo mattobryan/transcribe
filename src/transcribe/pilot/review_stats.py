@@ -1,6 +1,6 @@
 """Review speed from a review manifest's save timestamps.
 
-    python -m src.transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
+    python -m transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
 
 Consecutive saves more than --idle minutes apart start a new session, so
 breaks are not counted as review time.

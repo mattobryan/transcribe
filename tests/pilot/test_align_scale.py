@@ -1,8 +1,8 @@
 """Regression: a long interview with unspoken turns and untranscribed chatter."""
 import numpy as np
 
-from src.transcribe.pilot.ctc_align import align_words
-from src.transcribe.pilot.textprep import turns_to_words
+from transcribe.pilot.ctc_align import align_words
+from transcribe.pilot.textprep import turns_to_words
 
 LETTERS = "abcdefghijklmnopqrstuvwxyz'"
 VOCAB = {c: i + 1 for i, c in enumerate(LETTERS)}

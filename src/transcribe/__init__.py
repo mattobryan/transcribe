@@ -11,12 +11,12 @@ __author__ = 'Transcriber Team'
 # Heavy submodules (torch, librosa) are imported lazily so lightweight tools
 # such as the pilot and the transcript parsers work without loading them.
 _LAZY = {
-    'load_config': ('.config', 'load_config'),
-    'Config': ('.config', 'Config'),
-    'CTCCodeSwitchingTranscriber': ('.models.ctc_model', 'CTCCodeSwitchingTranscriber'),
-    'Seq2SeqCodeSwitchingTranscriber': ('.models.seq2seq', 'Seq2SeqCodeSwitchingTranscriber'),
-    'DataPreprocessor': ('.data.preprocessing', 'DataPreprocessor'),
-    'EvaluationMetrics': ('.evaluation.metrics', 'EvaluationMetrics'),
+    'load_config': ('.legacy.config', 'load_config'),
+    'Config': ('.legacy.config', 'Config'),
+    'CTCCodeSwitchingTranscriber': ('.legacy.models.ctc_model', 'CTCCodeSwitchingTranscriber'),
+    'Seq2SeqCodeSwitchingTranscriber': ('.legacy.models.seq2seq', 'Seq2SeqCodeSwitchingTranscriber'),
+    'DataPreprocessor': ('.legacy.data.preprocessing', 'DataPreprocessor'),
+    'EvaluationMetrics': ('.legacy.evaluation.metrics', 'EvaluationMetrics'),
 }
 
 __all__ = list(_LAZY)

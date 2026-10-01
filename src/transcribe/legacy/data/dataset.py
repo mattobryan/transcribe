@@ -4,7 +4,7 @@ PyTorch Dataset and DataLoader utilities.
 
 import torch
 from torch.utils.data import Dataset
-from typing import List, Tuple, Dict
+from typing import List
 
 
 class SpeechDataset(Dataset):

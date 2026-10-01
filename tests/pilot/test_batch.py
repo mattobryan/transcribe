@@ -1,4 +1,4 @@
-from src.transcribe.pilot.batch import pair_files
+from transcribe.pilot.batch import pair_files
 
 
 def test_pairs_by_normalised_name(tmp_path):

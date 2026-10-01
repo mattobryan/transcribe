@@ -6,95 +6,71 @@ A custom speech-to-text transcriber for English-Swahili code-switching speech pa
 implementation plan) are in [docs/](docs/README.md). They supersede the original
 [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md).
 
-## Features
+## Status
 
-- Handles mixed English-Swahili speech recognition
-- Two model architectures:
-  - **CTC** (recommended): CNN-LSTM with CTC loss (alignment-free training)
-  - **Seq2Seq**: Encoder-decoder with attention and teacher forcing
-- CNN-LSTM backbone with BatchNorm
-- Support for code-switched vocabulary (English + Swahili characters)
-- Evaluation metrics: WER, CER, and BLEU scores
+- **Planning documents:** problem statement, PRD, TRD, UI/UX, app flow, backend schema,
+  implementation plan, Kaggle runbook and style guide, as versioned LaTeX/PDF with change logs.
+- **Pilot (done):** aligns a reviewed DOCX transcript to its audio, cuts training-sized
+  chunks and measures stock Whisper on them. See the TRD section on long-form alignment and the Plan's *Pilot* section.
+- **Phase 0 (in progress):** package layout, legacy baseline moved aside, grouped splits, CI.
+- **Tasks:** tracked in [GitHub Issues](https://github.com/mattobryan/transcribe/issues),
+  labelled `owner:you` / `owner:claude` and by phase.
+
+The product direction is a fine-tuned multilingual Whisper (TRD §2). The original from-scratch
+MFCC CNN-LSTM models are kept as a learning baseline in `transcribe.legacy`.
 
 ## Project Structure
 
 ```
 transcribe/
-|-- config/
-|   `-- default.yaml             # Configuration file
+|-- docs/                     # LaTeX sources (latex/) and PDFs (pdf/, pdf/archive/)
 |-- src/transcribe/
-|   |-- __init__.py              # Package root
-|   |-- config.py                # Config dataclass + YAML loader
-|   |-- models/
-|   |   |-- __init__.py
-|   |   |-- ctc_model.py         # CNN-LSTM + CTC
-|   |   `-- seq2seq.py           # Encoder-decoder + attention
-|   |-- data/
-|   |   |-- __init__.py
-|   |   |-- preprocessing.py     # Audio + vocab utilities
-|   |   `-- dataset.py           # PyTorch Dataset + collate_fn
-|   |-- evaluation/
-|   |   |-- __init__.py
-|   |   `-- metrics.py           # WER, CER, BLEU
-|   |-- training/
-|   |   |-- __init__.py
-|   |   `-- trainer.py           # Training loop + checkpointing
-|   `-- script/
-|       |-- __init__.py
-|       |-- train.py             # Training entry point
-|       |-- evaluate.py          # Evaluation entry point
-|       `-- infer.py             # Inference entry point
-|-- data/                        # Audio data + metadata (gitignored)
-|-- checkpoints/                 # Model checkpoints (gitignored)
-|-- requirements.txt
-|-- pyproject.toml
-|-- README.md
-`-- .gitignore
+|   |-- pilot/                # alignment, segmentation, zero-shot Whisper, reports, Kaggle batch
+|   |-- preprocessing/        # DOCX/PDF transcript parsers, energy VAD, chunk export, manifests
+|   |-- review/               # Gradio chunk-review app
+|   |-- script/               # CLIs: parse_transcript, prepare_audio, review, export_training_manifest
+|   `-- legacy/               # from-scratch CTC/Seq2Seq baseline: train, evaluate, infer
+|-- tests/                    # pilot/ and legacy/ test suites
+|-- scripts/kaggle_pilot.sh   # one-shot Kaggle run
+|-- notebooks/                # Kaggle notebook
+|-- requirements/             # dependency groups: core, pilot, ui, legacy, dev
+`-- .github/workflows/ci.yml  # lint + tests on every push
 ```
 
 ## Installation
 
 ```bash
-python -m pip install -r requirements.txt
-python -m pip install -e .
+python -m pip install -r requirements-pilot.txt   # pilot + review UI (installs the package too)
+python -m pip install -r requirements.txt         # legacy baseline only
+python -m pip install -r requirements/dev.txt     # tests and lint
 ```
 
-> **Use `python -m pip`, not a bare `pip`.** On this (and many Windows) systems,
-> a bare `pip` may point to a *different* Python instalment (e.g. 3.13) than the
-> `python` that runs this project (3.10), so packages you install with `pip`
-> won't be visible to `python`. `python -m pip` always targets the interpreter
-> you're using. If `pip` isn't available on `python`, run `python -m ensurepip`.
+Each requirements file ends with `-e .`, which installs this repository as the `transcribe`
+package, so every tool runs as `python -m transcribe....` from any folder. Run them from the
+repository root.
 
-## Quick Start
+> **Use `python -m pip`, not a bare `pip`.** On many Windows systems a bare `pip` points to a
+> *different* Python installation than the `python` that runs this project, so packages you
+> install with it are not visible. `python -m pip` always targets the interpreter you are using.
 
-### 1. Prepare Your Data
-
-Place audio files (`.wav`) in `data/audio/` and create `data/metadata.json`:
-
-```json
-[
-  {"audio_file": "sample1.wav", "transcript": "habari yako jambo"},
-  {"audio_file": "sample2.wav", "transcript": "how are you mahaba"}
-]
-```
-
-### 2. Train
+Run the checks the same way CI does:
 
 ```bash
-python -m src.transcribe.script.train --config config/default.yaml
+ruff check .
+python -m pytest -q
 ```
 
-### 3. Evaluate
+## Legacy baseline (from-scratch models)
 
 ```bash
-python -m src.transcribe.script.evaluate --checkpoint checkpoints/final_model.pt
+python -m transcribe.legacy.train --config config/default.yaml
+python -m transcribe.legacy.evaluate --checkpoint checkpoints/final_model.pt
+python -m transcribe.legacy.infer --audio data/audio/sample1.wav --checkpoint checkpoints/final_model.pt
 ```
 
-### 4. Infer (Transcribe New Audio)
-
-```bash
-python -m src.transcribe.script.infer --audio data/audio/sample1.wav --checkpoint checkpoints/final_model.pt
-```
+`data/metadata.json` is a list of `{"audio_file": ..., "transcript": ...}`. Splits are grouped by
+recording (chunk names `<recording>_000123.wav`, or a `recording_id` field), so no recording is in
+two splits, and the vocabulary is built from the training transcripts only.
 
 ## Pilot: One Recording (alignment + zero-shot Whisper)
 
@@ -107,19 +83,19 @@ and every stage is cached in `--out`.
 
 # Optional 5-minute smoke test on public FLEURS clips with known answers
 # (downloads ~310 MB once; the only suspect turn should be p0008):
-.\.venv\Scripts\python.exe -m src.transcribe.pilot.make_mock --out data/pilot/mock
-.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+.\.venv\Scripts\python.exe -m transcribe.pilot.make_mock --out data/pilot/mock
+.\.venv\Scripts\python.exe -m transcribe.pilot.run `
   --audio data/pilot/mock/mock_interview.wav --transcript data/pilot/mock/mock_interview.docx `
   --out data/pilot/mock/run --languages sw
 
 # Quick check on the real recording (about 10 minutes after the one-off alignment step):
-.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+.\.venv\Scripts\python.exe -m transcribe.pilot.run `
   --audio "data/audio/NRCCW_ KSM09.MP3" `
   --transcript data/audio/NRCCW_KSM09.docx `
   --out data/pilot/NRCCW_KSM09 --languages sw --max-segments 60
 
 # Full run (all segments, Swahili / English / auto language) + review chunks:
-.\.venv\Scripts\python.exe -m src.transcribe.pilot.run `
+.\.venv\Scripts\python.exe -m transcribe.pilot.run `
   --audio "data/audio/NRCCW_ KSM09.MP3" `
   --transcript data/audio/NRCCW_KSM09.docx `
   --out data/pilot/NRCCW_KSM09 --export-review
@@ -141,8 +117,8 @@ Outputs in `data/pilot/NRCCW_KSM09/`:
 Review the pre-filled chunks and measure your speed:
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.transcribe.script.review --manifest data/pilot/NRCCW_KSM09/review_manifest.json
-.\.venv\Scripts\python.exe -m src.transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
+.\.venv\Scripts\python.exe -m transcribe.script.review --manifest data/pilot/NRCCW_KSM09/review_manifest.json
+.\.venv\Scripts\python.exe -m transcribe.pilot.review_stats data/pilot/NRCCW_KSM09/review_manifest.json
 ```
 
 The reports contain transcript text and numbers, not audio.
@@ -178,32 +154,32 @@ chunks, and writes a review manifest.
 
 ```bash
 python -m pip install -r requirements-annotation.txt
-python -m src.transcribe.script.parse_transcript \
+python -m transcribe.script.parse_transcript \
   --transcript data/transcripts/NRCCW_KSM09.docx \
   --audio data/audio/NRCCW_KSM09.wav \
   --output data/projects/NRCCW_KSM09/transcript.json
-python -m src.transcribe.script.prepare_audio \
+python -m transcribe.script.prepare_audio \
   --audio data/audio/NRCCW_KSM09.wav \
   --output-dir data/projects/NRCCW_KSM09/chunks \
   --manifest data/projects/NRCCW_KSM09/audio.json \
   --transcript-manifest data/projects/NRCCW_KSM09/transcript.json
-python -m src.transcribe.script.review \
+python -m transcribe.script.review \
   --manifest data/projects/NRCCW_KSM09/audio.json
 ```
 
 After reviewing and adding approved transcripts to the rich segment manifest:
 
 ```bash
-python -m src.transcribe.script.export_training_manifest \
+python -m transcribe.script.export_training_manifest \
   --input data/projects/NRCCW_KSM09/reviewed.json \
   --output data/metadata.json
-python -m src.transcribe.script.train --config config/default.yaml
+python -m transcribe.legacy.train --config config/default.yaml
 ```
 
 The first implementation uses energy-based VAD and manual review. Forced alignment can
 be added later as an optional suggestion layer; it must not overwrite the reviewed text.
 
-## Configuration
+## Legacy configuration
 
 Settings are in `config/default.yaml`. Key fields:
 
@@ -222,7 +198,7 @@ Settings are in `config/default.yaml`. Key fields:
 | `save_every`      | Save checkpoint every N epochs      | 10      |
 | `grad_clip`       | Max gradient norm                   | 1.0     |
 
-## Model Architectures
+## Legacy model architectures
 
 ### CTC Model (Recommended)
 
@@ -240,9 +216,6 @@ Settings are in `config/default.yaml`. Key fields:
 
 ## Dependencies
 
-- `torch` — deep learning (CPU build fine)
-- `librosa`, `soundfile`, `numba` — audio loading + MFCC features
-- `numpy`, `scipy`, `scikit-learn` — scientific stack / train-test splits
-- `editdistance`, `python-Levenshtein` — WER/CER edit distance
-- `nltk` — BLEU score
-- `PyYAML` — config loading
+Grouped in `requirements/` (and as extras in `pyproject.toml`): `core` (transcript parsing, audio
+I/O), `pilot` (PyTorch, transformers, faster-whisper, jiwer), `ui` (Gradio), `legacy` (PyTorch,
+scikit-learn, edit-distance metrics, NLTK, PyYAML) and `dev` (pytest, ruff).

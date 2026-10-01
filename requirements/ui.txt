@@ -1,0 +1,3 @@
+# Review UI.
+-r core.txt
+gradio>=4.0,<6.0

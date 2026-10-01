@@ -2,7 +2,7 @@
 
 import argparse
 
-from src.transcribe.preprocessing.manifest import export_segments_manifest
+from transcribe.preprocessing.manifest import export_segments_manifest
 
 
 def main() -> None:

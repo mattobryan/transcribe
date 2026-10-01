@@ -2,7 +2,7 @@
 
 Usage (Windows PowerShell, from the repository root):
 
-    .\\.venv\\Scripts\\python.exe -m src.transcribe.pilot.run `
+    .\\.venv\\Scripts\\python.exe -m transcribe.pilot.run `
         --audio "data/audio/NRCCW_ KSM09.MP3" `
         --transcript data/audio/NRCCW_KSM09.docx `
         --out data/pilot/NRCCW_KSM09 --export-review
@@ -57,10 +57,10 @@ def write_json(path: Path, data) -> None:
 
 def parse_transcript(path: str) -> List[Dict]:
     if path.lower().endswith(".pdf"):
-        from src.transcribe.preprocessing.pdf_parser import parse_pdf
+        from transcribe.preprocessing.pdf_parser import parse_pdf
         manifest = parse_pdf(path)
     else:
-        from src.transcribe.preprocessing.docx_parser import parse_docx
+        from transcribe.preprocessing.docx_parser import parse_docx
         manifest = parse_docx(path)
     return [asdict(turn) for turn in manifest.transcript_turns]
 
@@ -374,9 +374,9 @@ def render_markdown(report: Dict) -> str:
     for e in report["asr"]:
         lines += ["", f"### {e['model']} / {e['language']}", "",
                   f"- Detected languages: {e['detected_languages']}",
-                  f"- Clean WER by speaker: " + ", ".join(
+                  "- Clean WER by speaker: " + ", ".join(
                       f"{k}: {pct(v['wer'])} ({v['ref_words']} words)" for k, v in e["clean_by_speaker"].items()),
-                  f"- Top substitutions (ref → hyp × count): " + "; ".join(
+                  "- Top substitutions (ref → hyp × count): " + "; ".join(
                       f"{r}→{h}×{n}" for r, h, n in e["clean"]["top_substitutions"][:15])]
         if e.get("gap_samples"):
             lines.append("- Text emitted in untranscribed gaps (hallucination or speech missing from the transcript):")

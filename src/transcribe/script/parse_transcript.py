@@ -2,9 +2,9 @@
 
 import argparse
 
-from src.transcribe.preprocessing.docx_parser import parse_docx
-from src.transcribe.preprocessing.manifest import save_manifest
-from src.transcribe.preprocessing.pdf_parser import parse_pdf
+from transcribe.preprocessing.docx_parser import parse_docx
+from transcribe.preprocessing.manifest import save_manifest
+from transcribe.preprocessing.pdf_parser import parse_pdf
 
 
 def main() -> None:

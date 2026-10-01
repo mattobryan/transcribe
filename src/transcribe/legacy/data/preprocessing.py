@@ -3,15 +3,30 @@ Data preprocessing utilities: audio loading, vocabulary, tokenization,
 and dataset splitting.
 '''
 
-import os
+import re
 import json
+import warnings
 from pathlib import Path
 from collections import Counter
 from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import librosa
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
+
+
+def recording_of(audio_path: str) -> str:
+    '''Recording a chunk belongs to: "KSM09_000123.wav" -> "KSM09".'''
+    stem = Path(audio_path).stem
+    match = re.match(r'^(.*)_\d{3,}$', stem)
+    return match.group(1) if match else stem
+
+
+def grouped_split(groups: List[str], fraction: float, seed: int) -> Tuple[List[int], List[int]]:
+    '''Split item indices so that no group (recording) is on both sides.'''
+    splitter = GroupShuffleSplit(n_splits=1, test_size=fraction, random_state=seed)
+    keep, held = next(splitter.split(np.zeros(len(groups)), groups=groups))
+    return sorted(keep.tolist()), sorted(held.tolist())
 
 
 SPECIAL_TOKENS = ['<PAD>', '<UNK>', '<SOS>', '<EOS>']
@@ -153,6 +168,7 @@ class DataPreprocessor:
 
         audio_files = []
         transcripts = []
+        groups = []
 
         for item in metadata:
             audio_reference = Path(item['audio_file'])
@@ -165,6 +181,7 @@ class DataPreprocessor:
             if audio_path.exists():
                 audio_files.append(str(audio_path))
                 transcripts.append(item['transcript'])
+                groups.append(item.get('recording_id') or recording_of(str(audio_path)))
 
         if len(audio_files) == 0:
             raise ValueError(
@@ -172,23 +189,41 @@ class DataPreprocessor:
                 f'Metadata: {metadata_file}'
             )
 
-        # Create vocabulary and mappings
-        vocab = self.create_vocabulary(transcripts, min_char_frequency)
+        # Split by recording so no recording is in two splits (no leakage).
+        indices = list(range(len(audio_files)))
+        if len(set(groups)) >= 3:
+            rest, test_idx = grouped_split(groups, 0.2, random_state)
+            rest_groups = [groups[i] for i in rest]
+            train_pos, val_pos = grouped_split(rest_groups, val_split, random_state)
+            train_idx = [rest[i] for i in train_pos]
+            val_idx = [rest[i] for i in val_pos]
+        else:
+            # Too few recordings to hold any out: split each recording by time
+            # (first 70% train, next 10% val, last 20% test) instead of at random.
+            warnings.warn('Fewer than 3 recordings: splitting by position within each '
+                          'recording; test scores will be optimistic.')
+            train_idx, val_idx, test_idx = [], [], []
+            for group in dict.fromkeys(groups):
+                members = [i for i in indices if groups[i] == group]
+                n = len(members)
+                a_, b_ = int(round(n * 0.7)), int(round(n * 0.8))
+                train_idx += members[:a_]
+                val_idx += members[a_:b_]
+                test_idx += members[b_:]
+
+        # Vocabulary from the training transcripts only; unseen characters map to <UNK>.
+        vocab = self.create_vocabulary([transcripts[i] for i in train_idx], min_char_frequency)
         char_to_idx, idx_to_char = self.build_mappings(vocab)
 
-        # Convert transcripts to indices
-        indexed_transcripts = [
-            self.text_to_indices(t, char_to_idx) for t in transcripts
-        ]
+        def take(idx):
+            return ([audio_files[i] for i in idx],
+                    [self.text_to_indices(transcripts[i], char_to_idx) for i in idx])
 
-        # Split dataset
-        X_tr, X_te, y_tr, y_te = train_test_split(
-            audio_files, indexed_transcripts,
-            test_size=0.2, random_state=random_state
-        )
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_tr, y_tr, test_size=val_split, random_state=random_state
-        )
+        X_train, y_train = take(train_idx)
+        X_val, y_val = take(val_idx)
+        X_te, y_te = take(test_idx)
+        split_groups = {name: sorted({groups[i] for i in idx})
+                        for name, idx in (('train', train_idx), ('val', val_idx), ('test', test_idx))}
 
         return {
             'train': {'audio': X_train, 'transcripts': y_train},
@@ -197,6 +232,7 @@ class DataPreprocessor:
             'vocab': vocab,
             'char_to_idx': char_to_idx,
             'idx_to_char': idx_to_char,
+            'groups': split_groups,
         }
 
 

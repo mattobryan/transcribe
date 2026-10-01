@@ -6,7 +6,7 @@ Loads settings from YAML config file with defaults.
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
 
 @dataclass

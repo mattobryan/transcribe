@@ -29,9 +29,9 @@ Use the repository's interpreter and prefer module entry points:
 ```text
 python -m pip install -r requirements.txt
 python -m pip install -e .
-python -m src.transcribe.script.train --config config/default.yaml
-python -m src.transcribe.script.evaluate --checkpoint checkpoints/final_model.pt --config config/default.yaml
-python -m src.transcribe.script.infer --audio data/audio/sample.wav --checkpoint checkpoints/final_model.pt --config config/default.yaml
+python -m transcribe.legacy.train --config config/default.yaml
+python -m transcribe.legacy.evaluate --checkpoint checkpoints/final_model.pt --config config/default.yaml
+python -m transcribe.legacy.infer --audio data/audio/sample.wav --checkpoint checkpoints/final_model.pt --config config/default.yaml
 ```
 
 Before running training, confirm that metadata is a JSON list containing `audio_file` and `transcript`, all referenced audio exists, and the checkpoint directory is writable. Training is not a dry run: it extracts features on demand and can be expensive.

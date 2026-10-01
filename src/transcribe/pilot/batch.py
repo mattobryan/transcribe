@@ -4,7 +4,7 @@ Pairs each transcript (.docx/.pdf) with the audio file whose name matches
 (case, spaces and underscores ignored), runs ``pilot.run`` for each pair in its
 own process, and writes ``summary.md`` / ``summary.json`` across recordings.
 
-    python -m src.transcribe.pilot.batch --input /kaggle/input --out /kaggle/working/pilot
+    python -m transcribe.pilot.batch --input /kaggle/input --out /kaggle/working/pilot
 """
 
 import argparse
@@ -107,7 +107,7 @@ def main() -> None:
             continue
         print(f"\n=== {recording_id}: {audio.name} + {text.name} ===", flush=True)
         started = time.time()
-        command = [sys.executable, "-m", "src.transcribe.pilot.run", "--audio", str(audio),
+        command = [sys.executable, "-m", "transcribe.pilot.run", "--audio", str(audio),
                    "--transcript", str(text), "--out", str(out / recording_id),
                    "--recording-id", recording_id, *passthrough]
         code = subprocess.call(command)

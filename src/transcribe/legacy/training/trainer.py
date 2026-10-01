@@ -2,7 +2,6 @@
 Training loop with CTC/seq2seq support, validation, and checkpointing.
 '''
 
-import os
 from pathlib import Path
 
 import torch

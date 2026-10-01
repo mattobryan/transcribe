@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from src.transcribe.evaluation.metrics import EvaluationMetrics
+from transcribe.legacy.evaluation.metrics import EvaluationMetrics
 
 
 def _read(path: str) -> Dict[str, Any]:
@@ -143,10 +143,9 @@ def _model_transcribe(audio_file: str, checkpoint_path: str) -> str:
     """Run the repository model on one chunk when a checkpoint is supplied."""
     import pickle
     import torch
-    from src.transcribe.config import load_config
-    from src.transcribe.data.preprocessing import DataPreprocessor
-    from src.transcribe.models.ctc_model import CTCCodeSwitchingTranscriber
-    from src.transcribe.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
+    from transcribe.legacy.data.preprocessing import DataPreprocessor
+    from transcribe.legacy.models.ctc_model import CTCCodeSwitchingTranscriber
+    from transcribe.legacy.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
 
     # Checkpoints are saved locally by this repo; disable weights_only to allow
     # the stored config dict (which may contain pathlib objects) to unpickle.
@@ -202,7 +201,7 @@ def transcribe_current(project: Dict[str, Any], path: str, index: int, checkpoin
     if not Path(checkpoint).exists():
         return (*_segment_values(project, path, max(0, int(index) - 1)),
                 f"Checkpoint not found: {checkpoint}. Verify the path, or train one with "
-                "`python -m src.transcribe.script.train --config config/default.yaml`.")
+                "`python -m transcribe.legacy.train --config config/default.yaml`.")
     internal_index = max(0, min(int(index) - 1, len(_segments(project)) - 1))
     segment = _segments(project)[internal_index]
     try:

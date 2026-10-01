@@ -4,9 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from src.transcribe.preprocessing.chunker import export_chunks
-from src.transcribe.preprocessing.manifest import load_manifest
-from src.transcribe.preprocessing.vad import detect_speech
+from transcribe.preprocessing.chunker import export_chunks
+from transcribe.preprocessing.manifest import load_manifest
+from transcribe.preprocessing.vad import detect_speech
 
 
 def main() -> None:

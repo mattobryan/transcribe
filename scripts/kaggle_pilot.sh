@@ -23,6 +23,7 @@ exec > >(tee -a "$OUT/kaggle_run.log") 2>&1
 echo "== [1/5] Installing dependencies"
 pip install -q "transformers>=4.40,<5" "faster-whisper>=1.1,<1.3" "jiwer>=3.0,<5" \
     "python-docx>=1.1,<2" "pypdf>=5,<7" "librosa>=0.10,<0.12" "soundfile>=0.12,<0.15" pytest
+pip install -q --no-deps -e .   # the transcribe package itself (python -m transcribe...)
 
 # CTranslate2 (faster-whisper) needs cuBLAS/cuDNN; Kaggle ships them as pip wheels.
 NV_LIBS=$(python - <<'PY'
@@ -59,7 +60,7 @@ echo "Whisper device: $WHISPER_DEVICE"
 
 echo "== [5/5] Pilot on every recording in $INPUT"
 STATUS=0
-python -m src.transcribe.pilot.batch --input "$INPUT" --out "$OUT" --only "$ONLY" \
+python -m transcribe.pilot.batch --input "$INPUT" --out "$OUT" --only "$ONLY" \
     --models "$MODELS" --languages "$LANGS" --max-segments "$MAX_SEGMENTS" \
     --whisper-device "$WHISPER_DEVICE" || STATUS=$?
 

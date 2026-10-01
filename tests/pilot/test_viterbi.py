@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.transcribe.pilot.ctc_align import viterbi_align
+from transcribe.pilot.ctc_align import viterbi_align
 
 BLANK = 0
 

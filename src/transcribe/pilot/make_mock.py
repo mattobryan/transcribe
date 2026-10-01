@@ -6,8 +6,8 @@ Kiswahili and US English dev sets (~310 MB, once), stitches 16 speaker turns
 italics, and includes one turn that is written but never spoken. A healthy
 pilot flags exactly that turn.
 
-    python -m src.transcribe.pilot.make_mock --out data/pilot/mock
-    python -m src.transcribe.pilot.run --audio data/pilot/mock/mock_interview.wav `
+    python -m transcribe.pilot.make_mock --out data/pilot/mock
+    python -m transcribe.pilot.run --audio data/pilot/mock/mock_interview.wav `
         --transcript data/pilot/mock/mock_interview.docx --out data/pilot/mock/run --languages sw
 """
 

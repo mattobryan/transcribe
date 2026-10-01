@@ -203,7 +203,6 @@ class Seq2SeqCodeSwitchingTranscriber(nn.Module):
 
         # Encode
         encoder_out, encoder_lengths = self.encode(src, src_lengths)
-        encoder_out_dim = encoder_out.size(-1)
 
         # Build encoder mask
         enc_mask = torch.arange(

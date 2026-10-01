@@ -2,7 +2,7 @@
 
 import argparse
 
-from src.transcribe.review.app import launch
+from transcribe.review.app import launch
 
 
 def main() -> None:

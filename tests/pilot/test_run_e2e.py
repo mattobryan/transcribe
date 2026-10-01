@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from docx import Document
 
-from src.transcribe.pilot import asr as asr_mod
-from src.transcribe.pilot import ctc_align, run
-from src.transcribe.pilot.textprep import align_form
+from transcribe.pilot import asr as asr_mod
+from transcribe.pilot import ctc_align, run
+from transcribe.pilot.textprep import align_form
 
 SR = 16000
 LETTERS = "abcdefghijklmnopqrstuvwxyz'"

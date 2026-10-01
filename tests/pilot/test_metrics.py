@@ -1,4 +1,4 @@
-from src.transcribe.pilot.metrics import aggregate, score_segment, switch_points
+from transcribe.pilot.metrics import aggregate, score_segment, switch_points
 
 
 def test_switch_points():

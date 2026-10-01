@@ -1,8 +1,8 @@
 from dataclasses import asdict
 
-from src.transcribe.pilot.textprep import (
+from transcribe.pilot.textprep import (
     align_form, normalize_text, normalize_word, select_turns, turns_to_words)
-from src.transcribe.preprocessing.docx_parser import parse_docx
+from transcribe.preprocessing.docx_parser import parse_docx
 
 
 def _words(path):

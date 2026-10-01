@@ -2,26 +2,24 @@
 Evaluation entry point.
 
 Usage:
-    python -m src.transcribe.script.evaluate --checkpoint checkpoints/final_model.pt \
+    python -m transcribe.legacy.evaluate --checkpoint checkpoints/final_model.pt \
         --config config/default.yaml
 '''
 
 import argparse
-import sys
 from pathlib import Path
 import pickle
 
 import torch
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.transcribe.config import load_config
-from src.transcribe.data.preprocessing import DataPreprocessor
-from src.transcribe.data.dataset import SpeechDataset, collate_ctc
-from src.transcribe.models.ctc_model import CTCCodeSwitchingTranscriber
-from src.transcribe.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
-from src.transcribe.evaluation.metrics import EvaluationMetrics
+from transcribe.legacy.config import load_config
+from transcribe.legacy.data.preprocessing import DataPreprocessor
+from transcribe.legacy.data.dataset import SpeechDataset, collate_ctc
+from transcribe.legacy.models.ctc_model import CTCCodeSwitchingTranscriber
+from transcribe.legacy.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
+from transcribe.legacy.evaluation.metrics import EvaluationMetrics
 
 
 def load_checkpoint(path):

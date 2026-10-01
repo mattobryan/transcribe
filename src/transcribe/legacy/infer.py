@@ -2,23 +2,21 @@
 Single-file inference entry point.
 
 Usage:
-    python -m src.transcribe.script.infer --audio path/to/file.wav \
+    python -m transcribe.legacy.infer --audio path/to/file.wav \
         --checkpoint checkpoints/final_model.pt
 '''
 
 import argparse
-import sys
 from pathlib import Path
 import pickle
 
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from src.transcribe.config import load_config
-from src.transcribe.data.preprocessing import DataPreprocessor
-from src.transcribe.models.ctc_model import CTCCodeSwitchingTranscriber
-from src.transcribe.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
+from transcribe.legacy.config import load_config
+from transcribe.legacy.data.preprocessing import DataPreprocessor
+from transcribe.legacy.models.ctc_model import CTCCodeSwitchingTranscriber
+from transcribe.legacy.models.seq2seq import Seq2SeqCodeSwitchingTranscriber
 
 
 def load_checkpoint(path):

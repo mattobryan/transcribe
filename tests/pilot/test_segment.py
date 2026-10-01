@@ -1,5 +1,5 @@
-from src.transcribe.pilot.segment import Policy, build_segments, group_words, silence_gaps
-from src.transcribe.pilot.textprep import Word
+from transcribe.pilot.segment import Policy, build_segments, group_words, silence_gaps
+from transcribe.pilot.textprep import Word
 
 
 def _w(i, start, end, turn=0, speaker="respondent", score=0.9, raw=None, lang="sw", ann=None):

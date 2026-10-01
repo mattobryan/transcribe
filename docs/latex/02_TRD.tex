@@ -3,7 +3,7 @@
 \begin{document}
 \kcttitle{02}{Technical Requirements Document (TRD)}{%
 Status & Draft \\
-Version & 1.2 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Version & 1.3 \textperiodcentered\ 2026-10-02 00:13 \textperiodcentered\ \hyperref[changelog]{change log} \\
 Related & \href{01_PRD.pdf}{01 PRD}, \href{04_APP_FLOW.pdf}{04 App Flow}, \href{05_BACKEND_SCHEMA.pdf}{05 Backend Schema} \\
 }
 {\small\setlength{\parskip}{0pt}\setcounter{tocdepth}{1}\tableofcontents}
@@ -292,6 +292,7 @@ Optimistic concurrency: every revision POST carries \texttt{base\_\allowbreak{}r
 
 \hypertarget{package-layout-target}{%
 \subsection{Package layout (target)}\label{package-layout-target}}
+\kctchanged{1.3}
 
 \begin{lstlisting}
 src/transcribe/
@@ -311,6 +312,8 @@ src/transcribe/
 notebooks/kaggle/ # thin notebooks calling transcribe.finetune.*
 tests/
 \end{lstlisting}
+
+\textbf{Current layout (after Phase 0).} The package installs as \texttt{transcribe} (\texttt{python -m pip install -e .}); tools run as \texttt{python -m transcribe.\ldots}, without the old \texttt{src.} prefix or \texttt{sys.path} hacks. What exists today: \texttt{pilot/} (alignment, segmentation, metrics, Whisper runner, reports, Kaggle batch), \texttt{preprocessing/} (DOCX/PDF parsers, energy VAD, chunk export, manifests), \texttt{review/} (Gradio review app), \texttt{script/} (corpus CLIs) and \texttt{legacy/} (the from-scratch baseline: \texttt{models/}, \texttt{training/}, \texttt{data/}, \texttt{evaluation/}, \texttt{config.py}, and \texttt{train}, \texttt{evaluate}, \texttt{infer}). The pilot modules move into \texttt{corpus/} and \texttt{evaluation/} in Phases 1 and 3.
 
 The package imports as \texttt{transcribe} (installed via \texttt{pip install -\allowbreak{}e .\allowbreak{}}). The \texttt{sys.\allowbreak{}path} / \texttt{src.\allowbreak{}} import hack is removed.
 
@@ -335,7 +338,8 @@ finetune (Kaggle only) & transformers, datasets, accelerate, evaluate, peft (v2)
 legacy & librosa, scikit-learn, editdistance, nltk \\
 \end{longtable}
 
-Requirements are split into \texttt{requirements/\allowbreak{}\{core,\allowbreak{}corpus,\allowbreak{}inference,\allowbreak{}ui,\allowbreak{}finetune,\allowbreak{}legacy\}.\allowbreak{}txt}. Versions are pinned with upper bounds, following the current practice.
+\kctchanged{1.3}
+Requirements are grouped in \texttt{requirements/\allowbreak{}\{core,\allowbreak{}pilot,\allowbreak{}ui,\allowbreak{}legacy,\allowbreak{}dev\}.\allowbreak{}txt}, mirrored as extras in \texttt{pyproject.toml} (\texttt{pip install -e ".[pilot,dev]"}). The root \texttt{requirements.txt}, \texttt{requirements-annotation.txt} and \texttt{requirements-pilot.txt} remain for existing commands; each ends with \texttt{-e .} so it also installs the package. The \emph{corpus}, \emph{inference}, \emph{eval} and \emph{finetune} groups in the table are added as those phases start. Versions are pinned with upper bounds.
 
 \hypertarget{evaluation}{%
 \section{Evaluation}\label{evaluation}}
@@ -431,8 +435,19 @@ CI & GitHub Actions: ruff + pytest (unit + integration with a tiny aligner mock)
 \begin{kctversions}
 1.0 & 2026-09-24 00:36 & \texttt{053e09d} & First LaTeX version (converted from the Markdown draft of 2026-09-23). \\
 1.1 & 2026-09-24 01:53 & \texttt{695b407}, \texttt{8a3be55} & Splits sized for the real corpus (11 recordings, 8~h~56~min); split by speaker group. \\
-1.2 & 2026-09-24 22:26 & this commit & Pilot results: aligner implementation, text preparation, two-pass long-form alignment, dependencies, tests. \\
+1.2 & 2026-09-24 22:26 & \texttt{c28ea1d} & Pilot results: aligner implementation, text preparation, two-pass long-form alignment, dependencies, tests. \\
+1.3 & 2026-10-02 00:13 & this commit & Phase 0: current package layout and requirement groups. \\
 \end{kctversions}
+
+\kctchange{1.3}{§6.3 Package layout}{package-layout-target}
+ {\kctsrc{c28ea1dac5c808cad195ed05f37979400d1a5f35}{02_TRD.tex}{294}{313}{v1.2 source, lines 294--313} \textperiodcentered\ \href{archive/v1.2/02_TRD.pdf}{v1.2 PDF}}
+ {Only the target layout (\texttt{api/}, \texttt{worker/}, \texttt{db/}, \texttt{corpus/}, \ldots, \texttt{legacy/}).}
+ {Keeps the target and adds the current layout after Phase 0: installable \texttt{transcribe} package run as \texttt{python -m transcribe...}; \texttt{pilot/}, \texttt{preprocessing/}, \texttt{review/}, \texttt{script/}, and the from-scratch baseline moved to \texttt{legacy/}.}
+
+\kctchange{1.3}{§7 Dependencies}{dependencies}
+ {\kctsrc{c28ea1dac5c808cad195ed05f37979400d1a5f35}{02_TRD.tex}{338}{338}{v1.2 source, line 338} \textperiodcentered\ \href{archive/v1.2/02_TRD.pdf}{v1.2 PDF}}
+ {``Requirements are split into \texttt{requirements/\{core,corpus,inference,ui,finetune,legacy\}.txt}.''}
+ {Actual groups: \texttt{core}, \texttt{pilot}, \texttt{ui}, \texttt{legacy}, \texttt{dev}, mirrored as \texttt{pyproject.toml} extras; root requirement files kept and install the package; remaining groups added per phase.}
 
 \kctchange{1.2}{§2.2 Chosen models: aligner row}{chosen-models}
  {\kctsrc{8a3be55a33b1a843a27d87795a74872523d940bb}{02_TRD.tex}{74}{74}{v1.1 source, line 74} \textperiodcentered\ \href{archive/v1.1/02_TRD.pdf}{v1.1 PDF}}
