@@ -41,6 +41,16 @@ def test_migration_creates_every_table(tmp_path):
     engine.dispose()
 
 
+def test_migrate_twice_is_a_no_op(tmp_path):
+    path = str(tmp_path / "t.db")
+    migrate(path)
+    migrate(path)
+    engine = create_engine_for(path)
+    with engine.connect() as connection:
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "0001"
+    engine.dispose()
+
+
 def test_revision_moves_segment_and_rejects_stale_base(db):
     segment = make_segment(db)
     r1 = add_revision(db, segment, text="habari yako", start_s=1.0, end_s=4.0, status="candidate",
