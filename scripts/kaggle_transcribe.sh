@@ -5,12 +5,13 @@
 #   !rm -rf transcribe && git clone -q --depth 1 -b matt/relaxed-meitner-2lfrx6 https://github.com/mattobryan/transcribe.git
 #   !cd transcribe && bash scripts/kaggle_transcribe.sh
 #
-# Optional settings before "bash": MODEL=small|large-v3-turbo  LANGUAGE=sw|en|auto  SPEAKERS=0
+# Optional settings before "bash": MODEL=small|large-v3-turbo (default: large-v3-turbo with a GPU, small without)
+#   LANGUAGE=sw|en|auto  SPEAKERS=0
 set -euo pipefail
 cd "$(dirname "$0")/.."
 INPUT=${INPUT:-/kaggle/input}
 OUT=${OUT:-/kaggle/working/results}
-MODEL=${MODEL:-large-v3-turbo}
+MODEL=${MODEL:-auto}
 LANGUAGE=${LANGUAGE:-sw}
 mkdir -p "$OUT"
 exec > >(tee -a "$OUT/run.log") 2>&1
@@ -36,7 +37,17 @@ print(":".join(dirs))
 PY
 )
 export LD_LIBRARY_PATH="${NV_LIBS}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || echo "No GPU: turn on Accelerator in the notebook settings"
+if nvidia-smi --query-gpu=name,memory.total --format=csv,noheader; then
+    HAS_GPU=1
+else
+    HAS_GPU=0
+    echo "No GPU (Accelerator is off or unavailable). Continuing on the CPU, which is slower."
+fi
+# Unless MODEL was set explicitly: the accurate model on a GPU, the small one on a CPU
+# (large-v3-turbo on a CPU would take many hours).
+if [ "$MODEL" = "auto" ]; then
+    if [ "$HAS_GPU" = "1" ]; then MODEL=large-v3-turbo; else MODEL=small; fi
+fi
 
 echo "== [2/3] Files found in $INPUT"
 find "$INPUT" -type f \( -iname '*.mp3' -o -iname '*.wav' -o -iname '*.m4a' -o -iname '*.mp4' -o -iname '*.mkv' \
