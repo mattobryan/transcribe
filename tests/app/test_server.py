@@ -121,3 +121,12 @@ def test_batch_command_writes_txt_srt_json(tmp_path):
     assert txt.count("ni kwa sababa ya maji") == 6
     assert "00:00:05,500 --> 00:00:07,500" in (tmp_path / "out" / "Interview 01.srt").read_text()
     assert (tmp_path / "out" / "Interview 01.json").exists()
+
+
+def test_batch_finds_media_in_folders(tmp_path):
+    from transcribe.app.batch import find_media
+    (tmp_path / "a").mkdir()
+    for name in ("a/one.MP4", "a/two.wav", "a/notes.txt", "three.m4a", ".hidden.mp3"):
+        (tmp_path / name).write_bytes(b"x")
+    found = [p.name for p in find_media([tmp_path / "a", tmp_path / "three.m4a"])]
+    assert found == ["one.MP4", "two.wav", "three.m4a"]

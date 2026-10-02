@@ -1,7 +1,10 @@
-"""Transcribe audio files with no web page: writes TXT, SRT and JSON next to each other.
+"""Transcribe audio or video files with no web page: writes TXT, SRT and JSON next to each other.
 
-    python -m transcribe.app.batch interview.mp3 --out results
-    python -m transcribe.app.batch *.mp3 --model large-v3-turbo --language sw
+    python -m transcribe.app.batch interview.mp4 --out results
+    python -m transcribe.app.batch recordings/ --model large-v3-turbo --language sw   # a whole folder
+
+A folder is searched for audio and video files; files that already have a .txt in --out are skipped,
+so a stopped run can be started again.
 
 The ``<name>/session.json`` it writes opens in the correction app later:
 ``python -m transcribe.app --open results/<name>/session.json``.
@@ -16,6 +19,23 @@ from typing import Dict, Optional
 from . import pipeline
 from .server import render_export
 from .store import Store, safe_name
+
+
+MEDIA = {".mp3", ".wav", ".m4a", ".mp4", ".mkv", ".mov", ".webm", ".avi", ".ogg", ".opus", ".flac", ".aac",
+         ".wma", ".3gp", ".mpeg", ".mpg", ".m4v"}
+
+
+def find_media(paths) -> list:
+    """Files as given, plus audio/video files found (recursively) inside any folder."""
+    found = []
+    for name in paths:
+        path = Path(name)
+        if path.is_dir():
+            found += sorted(p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in MEDIA
+                            and not p.name.startswith("."))
+        else:
+            found.append(path)
+    return found
 
 
 def transcribe_file(audio: Path, out: Path, transcriber, language: str = "sw", model: str = "small",
@@ -51,8 +71,14 @@ def main(argv: Optional[list] = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     runner = WhisperRunner(args.model)
     print(f"Whisper {args.model} on {runner.device}", flush=True)
-    for name in args.audio:
-        path = Path(name)
+    files = find_media(args.audio)
+    if not files:
+        raise SystemExit("No audio or video files found in: " + ", ".join(args.audio))
+    for path in files:
+        if (out / f"{safe_name(path.stem)}.txt").exists():
+            print(f"{path.name}: already done, skipped", flush=True)
+            continue
+        print(f"{path.name}: starting ({path.stat().st_size / 1e6:.0f} MB)", flush=True)
         started = time.time()
         session = transcribe_file(path, out, runner, args.language, args.model, not args.no_speakers)
         print(f"{path.name}: {len(session['segments'])} chunks, "

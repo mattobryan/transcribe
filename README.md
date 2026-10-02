@@ -105,6 +105,11 @@ faster than real time (not yet timed on a real recording). If you only need the 
 python -m transcribe.app.batch audio.mp3 --out results --language sw    # writes results/audio.txt, .srt, .json
 ```
 
+**Unattended on Kaggle** (keeps running after you close the tab, unlike Colab, which needs the page open):
+upload your audio or video as a private dataset, import `notebooks/kaggle_transcribe.ipynb`, attach the dataset,
+set GPU and Internet on, and press Save Version → Save & Run All (Commit). The transcripts appear in the version's
+Output tab as `.txt`, `.srt` and `.json`.
+
 Download your transcripts (TXT, SRT, JSON) before closing the notebook: its disk is wiped when it ends.
 Public links (`python -m transcribe.app.online`) are protected by a random token; anyone without the full
 link cannot open them. Opened sessions can be corrected later on any machine:
