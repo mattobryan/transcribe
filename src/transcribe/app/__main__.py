@@ -1,11 +1,12 @@
 """Start the transcription app.
 
     python -m transcribe.app                     # http://127.0.0.1:8000
-    python -m transcribe.app --model large-v3-turbo --port 8080
+    python -m transcribe.app --port 8080 --data /path/to/sessions
     python -m transcribe.app --open data/pilot/NRCCW_KSM09/review_manifest.json
 """
 
 import argparse
+import os
 import threading
 import webbrowser
 from pathlib import Path
@@ -18,13 +19,14 @@ def main() -> None:
     parser.add_argument("--data", default="data/app", help="Where sessions and uploads are kept")
     parser.add_argument("--open", dest="manifest", help="Open a pilot review_manifest.json as a session")
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--token", default=os.environ.get("TRANSCRIBE_TOKEN"), help="Require ?token=... (for public links)")
     args = parser.parse_args()
 
     import uvicorn
 
     from .server import create_app, import_manifest
 
-    app = create_app(Path(args.data))
+    app = create_app(Path(args.data), token=args.token)
     url = f"http://{args.host}:{args.port}/"
     if args.manifest:
         session_id = import_manifest(app.state.store, Path(args.manifest))

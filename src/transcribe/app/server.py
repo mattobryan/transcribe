@@ -5,6 +5,7 @@ Run with ``python -m transcribe.app`` and open http://127.0.0.1:8000.
 
 import json
 import queue
+import secrets
 import shutil
 import threading
 import traceback
@@ -50,12 +51,50 @@ class ChunkEdit(BaseModel):
     text: str
 
 
-def create_app(data_dir: Path = Path("data/app"), transcriber_factory=None, segmenter=None) -> FastAPI:
+def render_export(session: Dict, format: str):
+    """Transcript as (text, media type): txt (grouped by speaker), srt or json."""
+    segs = session["segments"]
+    if format == "json":
+        return json.dumps(session, ensure_ascii=False, indent=1), "application/json"
+    if format == "srt":
+        def ts(x: float) -> str:
+            ms = int(round(x * 1000))
+            return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+        return "\n".join(f"{i + 1}\n{ts(s['start'])} --> {ts(s['end'])}\n"
+                         f"{(s['speaker_id'] + ': ') if s.get('speaker_id') else ''}{s['transcript']}\n"
+                         for i, s in enumerate(segs)), "application/x-subrip"
+    if format == "txt":
+        lines, last = [], None
+        for s in segs:
+            speaker = s.get("speaker_id")
+            if speaker and speaker != last:
+                lines.append(f"\n{speaker}:")
+                last = speaker
+            lines.append(s["transcript"])
+        return "\n".join(lines).strip() + "\n", "text/plain"
+    raise ValueError("format must be txt, srt or json")
+
+
+def create_app(data_dir: Path = Path("data/app"), transcriber_factory=None, segmenter=None,
+               token: Optional[str] = None) -> FastAPI:
     store = Store(Path(data_dir) / "sessions")
     engine = Engine(transcriber_factory)
     jobs: "queue.Queue[str]" = queue.Queue()
     ahead: "queue.Queue[tuple]" = queue.Queue()
     app = FastAPI(title="Transcription")
+
+    if token:
+        # For a public link (Colab / Kaggle tunnel): open it once with ?token=..., the browser
+        # then keeps a cookie. Every other request without the token is refused.
+        @app.middleware("http")
+        async def require_token(request, call_next):
+            given = request.query_params.get("token") or request.cookies.get("transcribe_token")
+            if not secrets.compare_digest(given or "", token):
+                return JSONResponse({"detail": "Open the link that includes ?token=..."}, status_code=401)
+            response = await call_next(request)
+            if request.query_params.get("token"):
+                response.set_cookie("transcribe_token", token, httponly=True, samesite="lax", max_age=86400)
+            return response
     app.state.store, app.state.engine, app.state.jobs, app.state.ahead = store, engine, jobs, ahead
 
     # ------------------------------------------------------------ workers
@@ -199,29 +238,11 @@ def create_app(data_dir: Path = Path("data/app"), transcriber_factory=None, segm
     @app.get("/api/sessions/{session_id}/export")
     def export(session_id: str, format: str = "txt"):
         session = get_session(session_id)
-        segs = session["segments"]
         title = safe_name(session.get("recording_id") or "transcript")
-        if format == "json":
-            body, media = json.dumps(session, ensure_ascii=False, indent=1), "application/json"
-        elif format == "srt":
-            def ts(x: float) -> str:
-                ms = int(round(x * 1000))
-                return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
-            body = "\n".join(f"{i + 1}\n{ts(s['start'])} --> {ts(s['end'])}\n"
-                             f"{(s['speaker_id'] + ': ') if s.get('speaker_id') else ''}{s['transcript']}\n"
-                             for i, s in enumerate(segs))
-            media = "application/x-subrip"
-        elif format == "txt":
-            lines, last = [], None
-            for s in segs:
-                speaker = s.get("speaker_id")
-                if speaker and speaker != last:
-                    lines.append(f"\n{speaker}:")
-                    last = speaker
-                lines.append(s["transcript"])
-            body, media = "\n".join(lines).strip() + "\n", "text/plain"
-        else:
-            raise HTTPException(400, "format must be txt, srt or json")
+        try:
+            body, media = render_export(session, format)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
         return Response(body, media_type=f"{media}; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{title}.{format}"'})
 

@@ -32,7 +32,14 @@ class WhisperRunner:
         self.threads = threads or (os.cpu_count() or 4)
         use_gpu = device == "cuda" or (device == "auto" and cuda_available())
         self.device = "cuda" if use_gpu else "cpu"
-        self.model = self._load()
+        try:
+            self.model = self._load()
+        except (RuntimeError, ValueError) as exc:         # GPU libraries missing or incompatible
+            if self.device != "cuda":
+                raise
+            print(f"    GPU unavailable ({exc}); using CPU int8", flush=True)
+            self.device = "cpu"
+            self.model = self._load()
 
     def _load(self):
         from faster_whisper import WhisperModel

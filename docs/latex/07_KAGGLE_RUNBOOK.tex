@@ -3,7 +3,7 @@
 \begin{document}
 \kcttitle{07}{Kaggle Runbook: Pilot Run}{%
 Status & Ready to use \\
-Version & 1.0 \textperiodcentered\ 2026-09-24 22:26 \textperiodcentered\ \hyperref[changelog]{change log} \\
+Version & 1.1 \textperiodcentered\ 2026-10-02 23:03\textperiodcentered\ \hyperref[changelog]{change log} \\
 Purpose & Run the pilot (alignment + zero-shot Whisper) for every recording on a Kaggle GPU, unattended \\
 Related & \href{02_TRD.pdf}{02 TRD} §4.3, \href{06_IMPLEMENTATION_PLAN.pdf}{06 Implementation Plan} (Pilot), \href{STYLE_GUIDE.pdf}{Style Guide} \\
 }
@@ -127,10 +127,38 @@ A test fails, or a red error & Download the log (Logs tab, or \texttt{kaggle\_ru
 The version fails with no log & Kaggle's 12-hour or weekly quota limit: rerun with \texttt{MODELS=small}. \\
 \end{longtable}
 
+\hypertarget{online-app}{%
+\section{Using the transcription app online}\label{online-app}}
+\kctchanged{1.1}
+
+For an urgent job on a machine without a strong CPU, run the transcription app itself on a free cloud GPU. The notebook is \texttt{notebooks/online\_app.ipynb}.
+
+\begin{enumerate}
+\tightlist
+\item
+  \textbf{Google Colab:} Runtime → Change runtime type → \textbf{T4 GPU}. Run the install cell, then cell \emph{2A}; click the link it shows. No Kaggle dataset is needed: you upload the audio on the page.
+\item
+  \textbf{Kaggle:} Accelerator GPU and Internet on. Run the install cell, then cell \emph{2B}; open the link it prints (it contains a private token; keep it private and keep the cell running).
+\item
+  On the page: \textbf{Load audio}, \textbf{Transcribe}, wait, then correct chunk by chunk (Esc, F1--F4).
+\item
+  \textbf{Download TXT / SRT / JSON} from the top right before closing; the notebook's disk is wiped when the session ends.
+\end{enumerate}
+
+\textbf{Only the text, no page:} upload the audio in the notebook's file panel and run \texttt{python -m transcribe.app.batch audio.mp3 --out results --language sw}; download \texttt{results/audio.txt} and \texttt{.srt}.
+
+\textbf{Limits.} Free sessions disconnect when idle and have weekly GPU limits. A recording is processed in one go at roughly several times real time on a T4 (not yet timed on a real recording). The Kaggle link uses a Cloudflare quick tunnel, which could not be tested from the build machine; if it fails, use Colab.
+
 \kctchangelog
 \begin{kctversions}
 1.0 & 2026-09-24 22:26 & \texttt{c28ea1d} & First version: step-by-step Kaggle run of the pilot. \\
+1.1 & 2026-10-02 23:03 & this commit & New section: using the transcription app online (Colab / Kaggle) and the text-only command. \\
 \end{kctversions}
 
-No changes since version 1.0. Later changes are recorded here, one entry per affected section, with a link to the previous text.
+\kctchange{1.1}{§7 Using the transcription app online (new)}{online-app}
+ {none (new section) \textperiodcentered\ \href{archive/v1.2/07_KAGGLE_RUNBOOK.pdf}{v1.0 PDF}}
+ {Only the unattended pilot run existed.}
+ {How to run the interactive app, or a plain text-only transcription, on a free Colab or Kaggle GPU.}
+
+
 \end{document}

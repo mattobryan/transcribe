@@ -94,6 +94,22 @@ python -m transcribe.app                            # opens http://127.0.0.1:800
 Sessions are kept in `data/app/sessions/<id>/`. Export as TXT, SRT or JSON from the top bar. Every
 corrected chunk is training data: `python -m transcribe.db.migrate_json data/app/sessions/*/session.json`.
 
+### Run it online (no powerful computer needed)
+
+Open `notebooks/online_app.ipynb` in **Google Colab** (Runtime, Change runtime type, T4 GPU) or **Kaggle**
+(Accelerator GPU, Internet on). Run the install cell, then the Colab cell (2A) or the Kaggle cell (2B), open
+the link it shows, upload your audio and work as usual. On a free T4 GPU Whisper small should run many times
+faster than real time (not yet timed on a real recording). If you only need the text:
+
+```bash
+python -m transcribe.app.batch audio.mp3 --out results --language sw    # writes results/audio.txt, .srt, .json
+```
+
+Download your transcripts (TXT, SRT, JSON) before closing the notebook: its disk is wiped when it ends.
+Public links (`python -m transcribe.app.online`) are protected by a random token; anyone without the full
+link cannot open them. Opened sessions can be corrected later on any machine:
+`python -m transcribe.app --open results/<id>/session.json`.
+
 ## Legacy baseline (from-scratch models)
 
 ```bash

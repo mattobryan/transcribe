@@ -97,3 +97,27 @@ def test_save_rejected_until_ready_and_bad_ids(tmp_path):
     client = TestClient(app)
     assert client.get("/api/sessions/does-not-exist").status_code == 404
     assert client.get("/api/sessions/..%2Fetc").status_code == 404
+
+
+def test_token_protects_a_public_link(tmp_path):
+    app = create_app(tmp_path, transcriber_factory=FakeWhisper, segmenter=lambda audio: REGIONS, token="s3cret")
+    client = TestClient(app)
+    assert client.get("/").status_code == 401
+    assert client.get("/api/sessions").status_code == 401
+    assert client.get("/api/sessions?token=wrong").status_code == 401
+    ok = client.get("/?token=s3cret")
+    assert ok.status_code == 200 and "transcribe_token" in ok.headers["set-cookie"]
+    assert client.get("/api/sessions").status_code == 200          # cookie now carries the token
+
+
+def test_batch_command_writes_txt_srt_json(tmp_path):
+    from transcribe.app.batch import transcribe_file
+    audio = tmp_path / "Interview 01.wav"
+    audio.write_bytes(wav_bytes())
+    session = transcribe_file(audio, tmp_path / "out", FakeWhisper("small"), speakers=False,
+                              segmenter=lambda a: REGIONS)
+    assert len(session["segments"]) == 6
+    txt = (tmp_path / "out" / "Interview 01.txt").read_text()
+    assert txt.count("ni kwa sababa ya maji") == 6
+    assert "00:00:05,500 --> 00:00:07,500" in (tmp_path / "out" / "Interview 01.srt").read_text()
+    assert (tmp_path / "out" / "Interview 01.json").exists()
