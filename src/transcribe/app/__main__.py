@@ -2,6 +2,7 @@
 
     python -m transcribe.app                     # http://127.0.0.1:8000
     python -m transcribe.app --port 8080 --data /path/to/sessions
+    python -m transcribe.app --open-elevenlabs transcript.json --audio interview.mp4
     python -m transcribe.app --open data/pilot/NRCCW_KSM09/review_manifest.json
 """
 
@@ -18,6 +19,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--data", default="data/app", help="Where sessions and uploads are kept")
     parser.add_argument("--open", dest="manifest", help="Open a pilot review_manifest.json as a session")
+    parser.add_argument("--open-elevenlabs", dest="eleven", help="Open an ElevenLabs transcript JSON (needs --audio)")
+    parser.add_argument("--audio", help="The audio or video file for --open-elevenlabs")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--token", default=os.environ.get("TRANSCRIBE_TOKEN"), help="Require ?token=... (for public links)")
     args = parser.parse_args()
@@ -28,6 +31,13 @@ def main() -> None:
 
     app = create_app(Path(args.data), token=args.token)
     url = f"http://{args.host}:{args.port}/"
+    if args.eleven:
+        if not args.audio:
+            parser.error("--open-elevenlabs needs --audio <the audio or video file>")
+        from .elevenlabs import import_elevenlabs
+        session_id = import_elevenlabs(app.state.store, Path(args.eleven), Path(args.audio))
+        url += f"#/edit/{session_id}"
+        print(f"Opened {args.eleven} as session {session_id}")
     if args.manifest:
         session_id = import_manifest(app.state.store, Path(args.manifest))
         url += f"#/edit/{session_id}"
