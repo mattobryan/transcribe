@@ -178,6 +178,8 @@ def transcribe_session(session: Dict, folder: Path, transcriber, save: Callable[
         result = transcriber.transcribe(clip, language)
         seg["asr_hypothesis"] = seg["transcript"] = result.get("text", "")
         seg["detected_language"] = result.get("detected_language")
+        if result.get("flag"):
+            seg["flag"] = result["flag"]
 
     session["progress"] = {"stage": "Identifying speakers", "done": total, "total": total}
     save(session)

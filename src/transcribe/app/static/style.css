@@ -74,11 +74,13 @@ select { font: inherit; padding: 6px; border: 1px solid var(--border); border-ra
 .chunks li .mark { width: 14px; text-align: center; }
 .chunks li.edited .mark { color: var(--ok); }
 .chunks li.updated .mark { color: var(--warn); }
+.chunks li.flagged .mark { color: var(--danger, #c0392b); font-weight: bold; }
 .editor { display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow-y: auto; }
 .chunkhead { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 18px; }
 .tag { font-size: 13px; border: 1px solid var(--border); border-radius: 10px; padding: 0 8px; color: var(--muted); }
 .tag.edited { color: var(--ok); border-color: var(--ok); }
 .tag.updated { color: var(--warn); border-color: var(--warn); }
+.tag.flagged { color: var(--danger, #c0392b); border-color: var(--danger, #c0392b); }
 .player { display: flex; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--border);
           border-radius: 8px; padding: 8px 12px; }
 .player input[type=range] { flex: 1; accent-color: var(--accent); }

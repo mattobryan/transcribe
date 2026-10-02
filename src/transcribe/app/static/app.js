@@ -149,12 +149,20 @@ function renderList() {
 function paintItem(i) {
   const li = $("chunkList").children[i]; if (!li) return;
   const seg = E.session.segments[i];
-  li.className = (i === E.index ? "current " : "") + (seg.edited ? "edited" : (seg.suggestion === "lookahead" || seg.suggestion === "adapted") ? "updated" : "");
-  li.children[0].textContent = seg.edited ? "✓" : (seg.suggestion === "lookahead" || seg.suggestion === "adapted") ? "↻" : "·";
+  const flagged = !seg.edited && seg.flag && seg.flag.length;
+  li.className = (i === E.index ? "current " : "") + (seg.edited ? "edited" : flagged ? "flagged" : (seg.suggestion === "lookahead" || seg.suggestion === "adapted") ? "updated" : "");
+  li.children[0].textContent = seg.edited ? "✓" : flagged ? "!" : (seg.suggestion === "lookahead" || seg.suggestion === "adapted") ? "↻" : "·";
   li.children[1].textContent = String(i + 1).padStart(3, " ") + " " + fmt(seg.start);
   li.children[2].textContent = seg.transcript || "…";
 }
 
+function nextFlagged() {                      // Alt+N: the next chunk that still needs a look
+  const segs = E.session.segments;
+  for (let step = 1; step <= segs.length; step++) {
+    const j = (E.index + step) % segs.length;
+    if (!segs[j].edited && segs[j].flag && segs[j].flag.length) { go(j, true); return; }
+  }
+}
 function load(i, autoplay) {
   const segs = E.session.segments;
   if (!segs.length) { $("chunkTitle").textContent = "No speech found in this audio."; return; }
@@ -166,10 +174,11 @@ function load(i, autoplay) {
   $("chunkTime").textContent = `${fmt(seg.start)} – ${fmt(seg.end)}`;
   $("chunkSpeaker").textContent = seg.speaker_id || ""; $("chunkSpeaker").classList.toggle("hidden", !seg.speaker_id);
   const st = $("chunkState");
-  st.className = "tag " + (seg.edited ? "edited" : seg.suggestion === "transcript" ? "" : seg.suggestion !== "model" ? "updated" : "");
-  st.textContent = seg.edited ? "corrected" : seg.suggestion === "lookahead" ? "re-transcribed with your corrections"
+  const flagged = !seg.edited && seg.flag && seg.flag.length;
+  st.className = "tag " + (seg.edited ? "edited" : flagged ? "flagged" : seg.suggestion === "transcript" ? "" : seg.suggestion !== "model" ? "updated" : "");
+  st.textContent = seg.edited ? "corrected" : flagged ? "check this chunk: " + seg.flag.join(", ") : seg.suggestion === "lookahead" ? "re-transcribed with your corrections"
     : seg.suggestion === "adapted" ? "your corrections applied" : seg.suggestion === "transcript" ? "aligned transcript" : "model";
-  st.classList.toggle("hidden", seg.suggestion === "model" && !seg.edited);
+  st.classList.toggle("hidden", seg.suggestion === "model" && !seg.edited && !flagged);
   $("text").value = seg.transcript || ""; E.loadedText = $("text").value; E.dirty = false;
   $("modelText").textContent = seg.asr_hypothesis || "(none)";
   $("saveState").textContent = "";
@@ -269,6 +278,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveAndNext(); }
   else if (e.altKey && k === "ArrowDown") { e.preventDefault(); go(E.index + 1, true); }
   else if (e.altKey && k === "ArrowUp") { e.preventDefault(); go(E.index - 1, true); }
+  else if (e.altKey && k.toLowerCase() === "n") { e.preventDefault(); nextFlagged(); }
   else if (k === "s" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(true); }
 });
 // Some browsers open help on F1 even when keydown is cancelled.

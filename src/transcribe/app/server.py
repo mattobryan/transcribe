@@ -130,7 +130,7 @@ def create_app(data_dir: Path = Path("data/app"), transcriber_factory=None, segm
             result = engine.transcribe(model, clip, language, initial_prompt=learned.get("prompt"),
                                        hotwords=" ".join(learned.get("hotwords", [])) or None)
 
-            def apply(s: Dict, index=index, text=result.get("text", "")) -> None:
+            def apply(s: Dict, index=index, text=result.get("text", ""), flag=result.get("flag")) -> None:
                 target = s["segments"][index]
                 if target.get("edited"):            # the reviewer got there first: never overwrite
                     return
@@ -138,6 +138,9 @@ def create_app(data_dir: Path = Path("data/app"), transcriber_factory=None, segm
                 target["asr_hypothesis"] = text
                 target["transcript"] = adapt.apply_rules(text, rules)
                 target["suggestion"] = "lookahead"
+                target.pop("flag", None)
+                if flag:
+                    target["flag"] = flag
                 target["updated_at"] = now()
             store.update(session_id, apply)
 
