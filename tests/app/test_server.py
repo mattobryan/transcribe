@@ -130,3 +130,47 @@ def test_batch_finds_media_in_folders(tmp_path):
         (tmp_path / name).write_bytes(b"x")
     found = [p.name for p in find_media([tmp_path / "a", tmp_path / "three.m4a"])]
     assert found == ["one.MP4", "two.wav", "three.m4a"]
+
+
+def test_decoder_handles_video_and_falls_back(tmp_path, monkeypatch):
+    import av
+    from transcribe.app import pipeline
+
+    video = tmp_path / "VID 1.mp4"
+    out = av.open(str(video), "w", format="mp4")
+    v = out.add_stream("mpeg4", rate=10)
+    v.width, v.height, v.pix_fmt = 64, 48, "yuv420p"
+    a = out.add_stream("aac", rate=16000)
+    a.layout = "mono"
+    for _ in range(30):
+        frame = av.VideoFrame.from_ndarray(np.full((48, 64, 3), 90, np.uint8), format="rgb24")
+        for packet in v.encode(frame.reformat(format="yuv420p")):
+            out.mux(packet)
+    tone = (np.sin(np.arange(16000 * 3) / 20) * 8000).astype(np.int16)
+    for i in range(0, len(tone), 1024):
+        f = av.AudioFrame.from_ndarray(tone[i:i + 1024][None, :], format="s16", layout="mono")
+        f.sample_rate = 16000
+        for packet in a.encode(f):
+            out.mux(packet)
+    for stream in (v, a):
+        for packet in stream.encode():
+            out.mux(packet)
+    out.close()
+
+    assert abs(pipeline.decode_to_wav(video, tmp_path / "a.wav") - 3.0) < 0.2
+
+    def broken(_source):                       # e.g. an incompatible PyAV on a new Python
+        raise TypeError("open() got an unexpected keyword argument")
+    monkeypatch.setattr(pipeline, "_decode_pyav", broken)
+    plain = tmp_path / "tone.wav"
+    sf.write(plain, tone.astype(np.float32) / 32768, 16000)
+    assert abs(pipeline.decode_to_wav(plain, tmp_path / "b.wav") - 3.0) < 0.1      # librosa fallback
+
+    monkeypatch.setattr(pipeline, "_decode_librosa", broken)
+    monkeypatch.setattr(pipeline.shutil, "which", lambda _name: None)
+    try:
+        pipeline.decode_to_wav(plain, tmp_path / "c.wav")
+    except RuntimeError as exc:
+        assert all(label in str(exc) for label in ("PyAV:", "ffmpeg:", "librosa:"))
+    else:
+        raise AssertionError("expected all decoders to fail")

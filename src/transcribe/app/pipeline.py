@@ -7,6 +7,7 @@ Hugging Face token is set).
 """
 
 import os
+import shutil
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -18,17 +19,58 @@ TARGET_CHUNK_S = 15.0
 SPLIT_GAP_S = 0.6
 
 
+def _decode_pyav(source: Path) -> np.ndarray:
+    """Audio track of any audio/video file as 16 kHz mono float32, using PyAV directly
+    (faster-whisper's own decoder breaks with some PyAV versions)."""
+    import av
+    chunks = []
+    with av.open(str(source)) as container:
+        if not container.streams.audio:
+            raise ValueError(f"{source.name} has no audio track")
+        stream = container.streams.audio[0]
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=SR)
+        for frame in container.decode(stream):
+            for out in resampler.resample(frame):
+                chunks.append(out.to_ndarray().reshape(-1))
+        for out in resampler.resample(None):
+            chunks.append(out.to_ndarray().reshape(-1))
+    if not chunks:
+        raise ValueError(f"{source.name}: no audio could be decoded")
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
+
+
+def _decode_ffmpeg(source: Path) -> np.ndarray:
+    import subprocess
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        raise FileNotFoundError("ffmpeg")
+    raw = subprocess.run([exe, "-nostdin", "-v", "error", "-i", str(source), "-vn", "-ac", "1", "-ar", str(SR),
+                          "-f", "s16le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+
+
+def _decode_librosa(source: Path) -> np.ndarray:
+    import librosa
+    audio, _ = librosa.load(str(source), sr=SR, mono=True)
+    return audio.astype(np.float32)
+
+
 def decode_to_wav(source: Path, target: Path) -> float:
-    """Decode any audio/video file to 16 kHz mono 16-bit WAV; returns duration in seconds."""
+    """Decode any audio/video file to 16 kHz mono 16-bit WAV; returns duration in seconds.
+
+    Tries PyAV, then the ffmpeg program, then librosa, and reports every failure if all fail."""
     import soundfile as sf
-    try:
-        from faster_whisper.audio import decode_audio
-        audio = decode_audio(str(source), sampling_rate=SR)
-    except ImportError:
-        import librosa
-        audio, _ = librosa.load(str(source), sr=SR, mono=True)
-    sf.write(target, audio, SR, subtype="PCM_16")
-    return len(audio) / SR
+    errors = []
+    for label, decoder in (("PyAV", _decode_pyav), ("ffmpeg", _decode_ffmpeg), ("librosa", _decode_librosa)):
+        try:
+            audio = decoder(source)
+            if len(audio):
+                sf.write(target, audio, SR, subtype="PCM_16")
+                return len(audio) / SR
+            errors.append(f"{label}: empty result")
+        except Exception as exc:                                  # try the next decoder
+            errors.append(f"{label}: {type(exc).__name__}: {exc}")
+    raise RuntimeError(f"Could not read the audio of {source.name}:\n  " + "\n  ".join(errors))
 
 
 def read_wav(path: Path, start: float = 0.0, end: Optional[float] = None) -> np.ndarray:
