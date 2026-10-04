@@ -1,0 +1,56 @@
+"""Smoke test for the corrector page (headless Chromium via Playwright).
+
+    pip install playwright numpy soundfile python-docx
+    TRANSCRIPT=/path/to/scribe.json python tools/corrector/smoke_test.py
+
+TRANSCRIPT is an ElevenLabs Scribe JSON with word timestamps and speakers. It is never committed: the interviews are
+consented research data. A short silent recording is generated here. The page loads JSZip from cdnjs; the test serves
+a local copy if JSZIP=/path/to/jszip.min.js is set (npm pack jszip), otherwise the page's own CDN load is used.
+"""
+import io, json, os, sys, tempfile, zipfile
+import numpy as np, soundfile as sf
+from playwright.sync_api import sync_playwright
+
+PAGE = "file://" + os.path.abspath(os.path.join(os.path.dirname(__file__), "index.html"))
+TRANSCRIPT = os.environ.get("TRANSCRIPT") or sys.exit("Set TRANSCRIPT=/path/to/scribe.json")
+EXE = os.environ.get("CHROMIUM")          # e.g. /opt/pw-browsers/chromium-1194/chrome-linux/chrome
+STUB = """window.claude={use:async(n)=>n==='downloads'?{save:async(r)=>{window.__saved={filename:r.filename};
+window.__text=typeof r.data==='string'?r.data:null;window.__bytes=typeof r.data==='string'?null:Array.from(r.data);return {status:'saved'}}}:null};"""
+failures = []
+def check(name, ok, detail=""):
+    print(("PASS " if ok else "FAIL ") + name + (" " + str(detail) if detail and not ok else ""))
+    if not ok: failures.append(name)
+
+tmp = tempfile.mkdtemp(); wav = os.path.join(tmp, "talk.wav")
+sf.write(wav, np.zeros(8000 * 200, dtype="float32"), 8000, subtype="PCM_U8")
+with sync_playwright() as p:
+    b = p.chromium.launch(executable_path=EXE, args=["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]) if EXE else p.chromium.launch(args=["--no-sandbox", "--autoplay-policy=no-user-gesture-required"])
+    pg = b.new_page(viewport={"width": 1180, "height": 800}); errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    if os.environ.get("JSZIP"): pg.route("**/jszip.min.js", lambda r: r.fulfill(body=open(os.environ["JSZIP"]).read(), content_type="application/javascript"))
+    pg.add_init_script(STUB); pg.goto(PAGE)
+    pg.set_input_files("#mediaFile", wav); pg.set_input_files("#jsonFile", TRANSCRIPT); pg.click("#startBtn"); pg.wait_for_selector("#work:not([hidden])")
+    check("opens and builds the script", pg.locator("#prose .seg").count() > 100)
+    check("editor focused", pg.evaluate("document.activeElement.id") == "text")
+    pg.click("#bPlay"); check("Play keeps focus in the editor", pg.evaluate("document.activeElement.id") == "text")
+    paused = lambda: pg.evaluate("document.getElementById('video').paused")
+    pg.click('#prose .seg[data-i="3"]'); pg.wait_for_timeout(300); pg.keyboard.type("x")
+    check("typing pauses the audio", paused())
+    pg.fill("#text", "R: nibreakie and Mbagathi Hospital."); pg.evaluate("t=>{const a=document.getElementById('text');a.focus();a.setSelectionRange(3,5)}", 0); pg.click("#mItalic")
+    check("italic on part of a word", pg.input_value("#text").startswith("R: _ni_break"), pg.input_value("#text"))
+    pg.evaluate("()=>{const a=document.getElementById('text');const i=a.value.indexOf('Mbagathi');a.setSelectionRange(i,i+17)}"); pg.click("#mBold")
+    check("bold toggles on a selection", "**Mbagathi Hospital**" in pg.input_value("#text"))
+    pg.click("#bSave"); pg.wait_for_timeout(300)
+    check("Save, play next chunk plays", not paused())
+    pg.click("#bSaveGo"); pg.wait_for_timeout(1200)
+    check("Save and continue keeps playing", not paused())
+    pg.click("#tOut"); pg.fill("#xName", "TEST FILE"); pg.check("#xT1"); pg.click("#xDocx"); pg.wait_for_timeout(1500)
+    data = bytes(pg.evaluate("window.__bytes") or [])
+    z = zipfile.ZipFile(io.BytesIO(data)); doc = z.read("word/document.xml").decode()
+    check("docx has header, footer fields, title", "TEST FILE" in z.read("word/header1.xml").decode() and "NUMPAGES" in z.read("word/footer1.xml").decode() and "TEST FILE" in doc)
+    check("docx is Times New Roman 12 and keeps bold/italic", "Times New Roman" in doc and '<w:sz w:val="24"/>' in doc and "<w:i/>" in doc and "<w:b/>" in doc)
+    pg.click("#xLog"); pg.wait_for_timeout(300); log = json.loads(pg.evaluate("window.__text"))
+    check("corrections log lists the mixed word", any(m["written"] == "_ni_break" or m["written"].startswith("_ni_") for m in log["mixed_words"]), log["mixed_words"])
+    check("no page errors", not errs, errs)
+    b.close()
+print("\n%d failure(s)" % len(failures)); sys.exit(1 if failures else 0)
