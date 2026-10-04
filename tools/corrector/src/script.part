@@ -1,0 +1,1013 @@
+(function () {
+  "use strict";
+  var MIN_CHUNK = 6.0, TARGET_CHUNK = 15.0, MAX_CHUNK = 30.0, PAUSE = 0.8, BAD_LOGPROB = -0.5, BAD_SHARE = 0.1;
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- Swahili / English word lists (built from this interview plus a general English list) ---------- */
+  var SW = new Set("__SW__ ku".split(" "));
+  var EN = new Set("__EN__".split(" "));
+  var AMB = new Set(["ya", "wa", "la", "ma", "ha", "ba"]);   // Swahili or English depending on the words around
+  var SUBJ = "ni|u|a|tu|m|mu|wa|i|zi|li|ya|ki|vi|pa|ku", TENSE = "na|li|ta|me|ki|ka|hu|nge|ngali|sha|ja", OBJ = "ni|ku|mw|m|tu|wa|i|zi|li|ya|ki|vi|pa";
+  var PRE_OBJ = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")(?:" + OBJ + ")");
+  var PRE = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")");
+  var VERB = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")[a-z]{2,}[aeiou]$");
+
+  // One word -> [[text, "sw" | "en" | "amb"], ...]. A mixed word such as "tunacheck" gives its Swahili part and its English part.
+  function classifyWord(orig, sentenceStart) {
+    var low = orig.toLowerCase();
+    if (AMB.has(low)) return [[orig, "amb"]];
+    if (SW.has(low)) return [[orig, "sw"]];
+    var capital = orig.charAt(0) !== low.charAt(0);
+    if (capital && !sentenceStart) return [[orig, "en"]];                 // a name
+    if (EN.has(low)) return [[orig, "en"]];
+    if (orig.indexOf("-") > 0) {
+      var parts = orig.split("-"), segs = [];
+      parts.forEach(function (p, i) {
+        if (!p) return;
+        var sub = classifyWord(p, false), tail = i < parts.length - 1 ? "-" : "";
+        sub[sub.length - 1] = [sub[sub.length - 1][0] + tail, sub[sub.length - 1][1]];
+        segs = segs.concat(sub);
+      });
+      return segs;
+    }
+    var m = PRE_OBJ.exec(low) || PRE.exec(low);
+    for (var tries = 0; tries < 2; tries++) {
+      m = tries === 0 ? PRE_OBJ.exec(low) : PRE.exec(low);
+      if (m) {
+        var rest = low.slice(m[0].length);
+        if (rest.length >= 3 && EN.has(rest)) return [[orig.slice(0, m[0].length), "sw"], [orig.slice(m[0].length), "en"]];
+      }
+    }
+    if (VERB.test(low)) return [[orig, "sw"]];
+    return [[orig, "en"]];
+  }
+
+  function tokenize(text) {
+    var items = [], re = /[\p{L}]+(?:['’\-][\p{L}]+)*/gu, m, last = 0, first = true;
+    while ((m = re.exec(text))) {
+      var gap = text.slice(last, m.index), start = first || /[.?!]/.test(gap);
+      first = false;
+      items.push({ gap: gap, segs: classifyWord(m[0], start) });
+      last = m.index + m[0].length;
+    }
+    items.push({ gap: text.slice(last), segs: [] });
+    resolveAmbiguous(items);
+    var PREFIX_ONLY = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")(?:" + OBJ + ")?$");
+    for (var i = 0; i + 1 < items.length; i++) {      // a verb prefix standing alone before an English word: "tuna deal"
+      var a = items[i], b = items[i + 1];
+      if (a.segs.length === 1 && a.segs[0][1] === "en" && PREFIX_ONLY.test(a.segs[0][0].toLowerCase()) && /^[\s]+$/.test(b.gap) && b.segs.length) a.segs[0][1] = "sw";
+    }
+    return items;
+  }
+  function tokenClass(it) {
+    if (!it.segs.length) return null;
+    if (it.segs.length === 1 && it.segs[0][1] === "amb") return "amb";
+    return it.segs.some(function (s) { return s[1] === "sw"; }) ? "sw" : "en";
+  }
+  function resolveAmbiguous(items) {
+    for (var i = 0; i < items.length; i++) {
+      if (tokenClass(items[i]) !== "amb") continue;
+      var prev = null, next = null, j;
+      for (j = i - 1; j >= 0; j--) { if (items[j].segs.length) { prev = tokenClass(items[j]); break; } }
+      for (j = i + 1; j < items.length; j++) { if (items[j].segs.length) { next = tokenClass(items[j]); break; } }
+      var sw = (prev === "sw" || next === "sw") && !(prev === "en" && next === "en");
+      items[i].segs[0][1] = sw ? "sw" : "en";
+    }
+  }
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  var MARK_SRC = "\\*\\*(.+?)\\*\\*|_(.+?)_|~(.+?)~";
+  function bodyHTML(text, noAuto) {         // your own marks win over the automatic Swahili italics
+    var re = new RegExp(MARK_SRC, "gu"), out = "", last = 0, m, plain = function (t) { return noAuto ? esc(t) : autoHTML(t); };
+    while ((m = re.exec(text))) {
+      out += plain(text.slice(last, m.index));
+      if (m[1] !== undefined) out += "<b>" + bodyHTML(m[1], noAuto) + "</b>";
+      else if (m[2] !== undefined) out += "<i>" + bodyHTML(m[2], true) + "</i>";
+      else out += bodyHTML(m[3], true);
+      last = m.index + m[0].length;
+    }
+    return out + plain(text.slice(last));
+  }
+  function stripMarks(t) { return t.replace(/\*\*(.+?)\*\*/g, "$1").replace(/_(.+?)_/g, "$1").replace(/~(.+?)~/g, "$1"); }
+  function autoHTML(text) {                 // text with Swahili in <i>
+    return tokenize(text).map(function (it) {
+      return esc(it.gap) + it.segs.map(function (s) { return s[1] === "sw" ? "<i>" + esc(s[0]) + "</i>" : esc(s[0]); }).join("");
+    }).join("");
+  }
+
+  /* ---------- lines: "I: ..." (interviewer, bold) and "R: ..." (respondent) ---------- */
+  var LABEL = /^\s*([IR]\d*):[ \t]*/;
+  function parseLines(text) {
+    var out = [], last = "R";
+    text.split("\n").forEach(function (raw) {
+      if (!raw.trim()) return;
+      var m = LABEL.exec(raw);
+      if (m) last = m[1];
+      out.push({ label: m ? m[1] : last, text: raw.replace(LABEL, "").trim(), explicit: !!m });
+    });
+    return out;
+  }
+  function lineHTML(l) { var b = bodyHTML(l.text); return l.label.charAt(0) === "I" ? "<b>" + l.label + ": " + b + "</b>" : l.label + ": " + b; }
+  function previewHTML(text) { return parseLines(text).map(function (l) { return "<p>" + lineHTML(l) + "</p>"; }).join(""); }
+
+
+  /* ---------- clean-up: fillers, interjections, dashes and ellipses between speakers ---------- */
+  var FILLERS = "mm-hmm|mhm|uh-huh|uhm|um|uh|ah|aah|aha|hmm|er|eh|mm";
+  function stripFillers(text) {          // inline "um", "uh-huh", "mm-hmm" ... out of someone's own speech
+    var re = new RegExp("(?<![\\p{L}\\p{N}-])(?:" + FILLERS + ")(?![\\p{L}\\p{N}])", "giu");
+    var out = "", pos = 0, removed = 0, m;
+    while ((m = re.exec(text))) {
+      out += text.slice(pos, m.index);
+      if (out.trim() && /[.?!\u2026]\s*$/.test(out)) out += "\u0001";             // next word starts a sentence
+      pos = re.lastIndex; if (text.charAt(pos) === ",") pos += 1;
+      removed += 1;
+    }
+    if (!removed) return { text: text.trim(), removed: 0 };            // leave Scribe's own punctuation alone
+    out += text.slice(pos);
+    out = out.replace(/\u0001(\s*)(\p{L})/gu, function (_, sp, ch) { return sp + ch.toUpperCase(); }).replace(/\u0001/g, "");
+    out = out.replace(/\s+([,;:!?])/g, "$1").replace(/\s+(\.)(?!\.)/g, "$1").replace(/,\s*([.?!])/g, "$1").replace(/,\s*,/g, ",")
+      .replace(/(?<!\.)([?!])\.(?!\.)/g, "$1").replace(/(?<!\.)\.\.(?!\.)/g, ".")
+      .replace(/^[\s,;:]+/, "").replace(/\s{2,}/g, " ").trim();
+    return { text: out, removed: removed };
+  }
+  function capFirst(t) { return t.replace(/^([^\p{L}\p{N}]*)(\p{Ll})/u, function (_, pre, ch) { return pre + ch.toUpperCase(); }); }
+  var LOWERABLE = new Set("the a an in on at to of for and but or so then because we you they it he she that which who when where if as is are was were with by from my our your their his her there this these those what how why not no also still just even only".split(" "));
+  function lowerFirstIfCommon(t) {          // a Scribe capital in the middle of a sentence: only fixed for plain function words, never names or "I"
+    var m = /^([^\p{L}]*)(\p{L}+)/u.exec(t);
+    if (!m || m[2] === "I" || /^I['\u2019]/.test(t.slice(m[1].length))) return t;
+    var w = m[2];
+    if (LOWERABLE.has(w.toLowerCase()) && w.slice(1) === w.slice(1).toLowerCase() && w.charAt(0) !== w.charAt(0).toLowerCase()) return m[1] + w.charAt(0).toLowerCase() + t.slice(m[1].length + 1);
+    return t;
+  }
+  function sentenceDone(t) { return !/(?:\.{2,}|\u2026)["')\u201d\u2019]*$/.test(t) && /[.?!]["')\u201d\u2019]*$/.test(t); }
+  function joinText(p, q) {                 // two pieces of the same speaker: capital after a finished sentence, small letter after an unfinished one
+    p = p.trim(); q = q.trim();
+    if (!p) return capFirst(q); if (!q) return p;
+    return p + " " + (sentenceDone(p) ? capFirst(q) : lowerFirstIfCommon(q));
+  }
+  var SO_NEXT = new Set("i we you he she they it there the this our my your his her their in for if when now then maybe basically what how why let's i'm we're you're it's there's that's one sometimes mostly usually also but and as after before at on with because".split(" "));
+  var SO_THAT = /^(?:is|was|are|were|will|can|could|means|makes|has|had)$/;
+  function soComma(t) {                     // "So we go" -> "So, we go" (not "so many", not "so that you can")
+    return t.replace(/(^|[.?!\u2026]["')\u201d\u2019]?\s+)(So)(\s+)([\p{L}][\p{L}'\u2019]*)(\s+[\p{L}][\p{L}'\u2019]*)?/gu, function (m, pre, so, sp, w1, w2) {
+      var n1 = w1.toLowerCase();
+      if (n1 === "that") { if (!SO_THAT.test((w2 || "").trim().toLowerCase())) return m; } else if (!SO_NEXT.has(n1)) return m;
+      return pre + so + "," + sp + w1 + (w2 || "");
+    });
+  }
+  function isEmptyRun(t) { return !/[\p{L}\p{N}]/u.test(t); }
+  function endsCut(t) { return /(?<!-)-$/.test(t); }                 // one dash: cut off by the other speaker
+  function startsPause(t) { return /^(?:\.{3}|…)/.test(t); }    // ellipsis: the speaker paused
+  function stripPause(t) { return t.replace(/^(?:\.{3}|…)\s*/, ""); }
+  function endsComplete(t) { return /[.?!\u2026\-]["')\u201d\u2019]*$/.test(t); }
+
+  var FILLER_SET = new Set(FILLERS.split("|"));
+  var ACK_SET = new Set("yeah yes okay ok sawa ndio ndiyo right oh".split(" "));
+  function wordsOf(t) { return (t.toLowerCase().match(/\p{L}+(?:-\p{L}+)*/gu) || []); }
+  function isBackchannel(t) {            // a short "Mm-hmm", "Uh-huh", "Okay" ... from the other speaker
+    var w = wordsOf(t);
+    return w.length > 0 && w.length <= 3 && w.every(function (x) { return FILLER_SET.has(x) || ACK_SET.has(x); });
+  }
+  function isPureFiller(t) { var w = wordsOf(t); return w.length > 0 && w.every(function (x) { return FILLER_SET.has(x); }); }
+
+  function cleanChunks(chunks) {
+    var seq = [], diag = { inline: 0, ownFillers: 0, backchannelKept: 0, backchannelDropped: 0, soCommas: 0, joined: 0, dashRemoved: 0, ellipsisRemoved: 0, notes: [] };
+    chunks.forEach(function (c, ci) { c.rawRuns = c.runs; c.flags = c.unsure >= BAD_SHARE ? ["unsure words"] : []; c.runs.forEach(function (r) { seq.push({ ci: ci, speaker: r.speaker, text: r.text }); }); });
+    seq.forEach(function (r) {
+      if (isBackchannel(r.text)) { r.bc = true; return; }
+      var res = stripFillers(r.text); r.text = res.text; diag.inline += res.removed; r.drop = isEmptyRun(r.text);
+    });
+    var prevS = null, nextS = null, si;
+    seq.forEach(function (r) { if (r.bc) r.prevS = prevS; else if (!r.drop) prevS = r; });
+    for (si = seq.length - 1; si >= 0; si--) { if (seq[si].bc) seq[si].nextS = nextS; else if (!seq[si].drop) nextS = seq[si]; }
+    seq.forEach(function (r) {            // "mm-hmm" in the middle of the other speaker's sentence: ignore it
+      if (r.bc) r.mid = !!(r.prevS && r.nextS && r.prevS.speaker === r.nextS.speaker && r.prevS.speaker !== r.speaker && !/[.?!\u2026]["')\u201d\u2019]*$/.test(r.prevS.text));
+    });
+    var subst = seq.filter(function (r) { return !r.bc && !r.drop; }), k, p, q;
+    function look(f, ci, run, other) { chunks[ci].flags.push(f); diag.notes.push({ chunk: ci + 1, flag: f, text: run.text.slice(-70), other: other ? other.text.slice(0, 70) : "" }); }
+
+    for (k = 1; k < subst.length; k++) {   // the same speaker carries on: an "mm-hmm" from the other speaker is not a cut-off
+      p = subst[k - 1]; q = subst[k];
+      if (p.speaker !== q.speaker) continue;
+      if (endsCut(p.text)) { p.text = p.text.replace(/-$/, ""); diag.dashRemoved += 1; if (q.text.split(/\s+/).length <= 3) look("short continuation after a cut-off: check who says it", q.ci, q, p); if (startsPause(q.text)) { q.text = stripPause(q.text); diag.ellipsisRemoved += 1; } }
+      else if (/(?:\.{3}|…)$/.test(p.text) && startsPause(q.text)) { q.text = stripPause(q.text); diag.ellipsisRemoved += 1; }
+    }
+    subst.forEach(function (r, n) {               // capital letters where pieces meet
+      var prev = n ? subst[n - 1] : null;
+      r.text = (!prev || prev.speaker !== r.speaker) ? capFirst(r.text) : (sentenceDone(prev.text) ? capFirst(r.text) : lowerFirstIfCommon(r.text));
+    });
+    for (k = 0; k + 1 < subst.length; k++) {   // marks that need a person: not changed automatically
+      p = subst[k]; q = subst[k + 1];
+      var words = p.text.split(/\s+/).length;
+      if (p.speaker !== q.speaker && words >= 4 && !endsComplete(p.text)) look("turn ends without . ? or -", p.ci, p, q);
+      if (k + 2 < subst.length && subst[k + 2].speaker === p.speaker && q.speaker !== p.speaker && endsCut(p.text) && !startsPause(subst[k + 2].text)) look("resumes after a cut-off: add ... ?", subst[k + 2].ci, subst[k + 2], p);
+    }
+    chunks.forEach(function (c, ci) {
+      var items = [];
+      seq.forEach(function (r) {
+        if (r.ci !== ci || r.drop) return;
+        var last = items[items.length - 1];
+        if (r.bc) {
+          if (last && last.speaker === r.speaker) {                                   // their own filler inside their own turn
+            if (isPureFiller(r.text)) return;
+            last.text = joinText(last.text, r.text); diag.joined += 1; return;
+          }
+          if (r.mid) { diag.backchannelDropped += 1; return; }                          // mid-sentence: not recorded
+          items.push({ speaker: r.speaker, text: r.text, hold: [] }); diag.backchannelKept += 1; return;
+        }
+        if (last && last.speaker === r.speaker) { last.text = joinText(last.text, r.text); diag.joined += 1; }
+        else items.push({ speaker: r.speaker, text: r.text, hold: [] });
+      });
+      var runs = [];
+      items.forEach(function (it) { runs.push({ speaker: it.speaker, text: it.text }); it.hold.forEach(function (h) { runs.push(h); }); });
+      var merged = [];                       // two lines in a row from the same speaker become one
+      runs.forEach(function (r) {
+        var prev = merged[merged.length - 1];
+        if (prev && prev.speaker === r.speaker) { if (isBackchannel(prev.text) && !endsComplete(prev.text)) prev.text += "."; prev.text = joinText(prev.text, r.text); } else merged.push({ speaker: r.speaker, text: r.text });
+      });
+      merged.forEach(function (r) { if (isBackchannel(r.text) && !endsComplete(r.text)) r.text += "."; else { var t2 = soComma(r.text); if (t2 !== r.text) { r.text = t2; diag.soCommas += 1; } } });
+      c.runs = merged;
+      var seen = {}; c.flags = c.flags.filter(function (f) { if (seen[f]) return false; seen[f] = 1; return true; });
+    });
+    return diag;
+  }
+
+  /* ---------- chunking (same rules as the desktop app), keeping who said each run of words ---------- */
+  function buildChunks(reply) {
+    var words = (reply.words || []).filter(function (w) { return w.type === "word" || w.type === "spacing"; });
+    var names = {}, nameCount = 0, order = [], out = [], cur = null;
+    function argmax(o) { var best = null; for (var k in o) { if (best === null || o[k] > o[best]) best = k; } return best; }
+    function close() {
+      if (!cur) return;
+      var runs = [];
+      cur.runs.forEach(function (r) { var t = r.text.split(/\s+/).filter(Boolean).join(" "); if (t) runs.push({ speaker: r.speaker, text: t }); });
+      if (runs.length) out.push({ start: cur.start, end: cur.end, runs: runs, speaker: argmax(cur.weights), unsure: cur.bad / Math.max(1, cur.words) });
+    }
+    words.forEach(function (w) {
+      if (w.type === "spacing") { if (cur && cur.runs.length) cur.runs[cur.runs.length - 1].text += w.text; return; }
+      var speaker = null;
+      if (w.speaker_id) {
+        if (!(w.speaker_id in names)) { nameCount += 1; names[w.speaker_id] = "Speaker " + nameCount; order.push(names[w.speaker_id]); }
+        speaker = names[w.speaker_id];
+      }
+      if (cur) {
+        var length = cur.end - cur.start, majority = argmax(cur.weights), gap = w.start - cur.end;
+        if (w.end - cur.start > MAX_CHUNK || (speaker !== majority && length >= MIN_CHUNK && gap >= 0.2) || (gap >= PAUSE && length >= TARGET_CHUNK)) { close(); cur = null; }
+      }
+      if (!cur) cur = { start: w.start, end: w.end, runs: [], weights: {}, bad: 0, words: 0 };
+      var last = cur.runs[cur.runs.length - 1];
+      if (!last || last.speaker !== speaker) { last = { speaker: speaker, text: "" }; cur.runs.push(last); }
+      last.text += w.text; cur.end = w.end; cur.words += 1;
+      if (typeof w.logprob === "number" && w.logprob < BAD_LOGPROB) cur.bad += 1;
+      if (speaker) cur.weights[speaker] = (cur.weights[speaker] || 0) + (w.end - w.start);
+    });
+    close();
+    out.speakerOrder = order;
+    out.diag = cleanChunks(out);
+    return out;
+  }
+  window.__buildChunks = buildChunks; window.__stripFillers = stripFillers; window.__tokenize = tokenize; window.__bodyHTML = bodyHTML; window.__parseLines = parseLines;
+
+  /* ---------- state ---------- */
+  var S = { dirty: false, oneShot: null, autoSwitch: true, chunks: [], edits: {}, done: {}, reviewWords: [], interviewer: null, speakers: [], idx: 0, key: "", undo: null, mediaUrl: null, shown: false };
+  var video = $("video");
+
+  function store(op, val, key) {
+    try {
+      if (op === "get") { var raw = localStorage.getItem(key || S.key); return raw ? JSON.parse(raw) : null; }
+      localStorage.setItem(S.key, JSON.stringify(val));
+    } catch (e) { /* storage unavailable: the page still works for this visit */ }
+    return null;
+  }
+  function persist() { if (S.key) store("set", { edits: S.edits, done: S.done, interviewer: S.interviewer, reviewWords: S.reviewWords, autoSwitch: S.autoSwitch }); }
+
+  function roleOf(speaker) { return speaker && speaker === S.interviewer ? "I" : "R"; }
+  function origText(i) { return S.chunks[i].runs.map(function (r) { return roleOf(r.speaker) + ": " + r.text; }).join("\n"); }
+  function hasEdit(i) { return Object.prototype.hasOwnProperty.call(S.edits, i); }
+  function textOf(i) { return hasEdit(i) ? S.edits[i] : origText(i); }
+  function fmt(t) { t = Math.max(0, t); var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = Math.floor(t % 60); return h + ":" + (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s; }
+  var REVIEW_DEFAULT = ["ukfeel", "wanakoconsult", "tunabidi", "tutamisse", "zinezinamotivate", "mnitaita", "nitad", "nyali", "rusa", "asongee", "soile", "wueh", "locummers", "aeration", "mem"];
+  function flagsOf(i) {            // reasons found when the chunk was built, plus words on the review list that are still in the text
+    var f = S.chunks[i].flags.slice();
+    if (S.reviewWords.length) {
+      var re = new RegExp("(?<![\\p{L}\\p{N}])(?:" + S.reviewWords.map(escRe).join("|") + ")(?![\\p{L}\\p{N}])", "giu"), hit = textOf(i).match(re);
+      if (hit) { var seenW = {}; hit.forEach(function (w) { seenW[w.toLowerCase()] = 1; }); f.push("listed word: " + Object.keys(seenW).join(", ")); }
+    }
+    return f;
+  }
+  function isFlagged(i) { return flagsOf(i).length > 0; }
+  function toast(msg) { var t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(function () { t.hidden = true; }, 2400); }
+
+  /* ---------- the transcript is kept in this browser so only the recording is needed next time ---------- */
+  function idb(op, key, val) {
+    return new Promise(function (resolve) {
+      try {
+        var req = indexedDB.open("corrector", 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore("kv"); };
+        req.onerror = function () { resolve(null); };
+        req.onsuccess = function () {
+          try {
+            var tx = req.result.transaction("kv", op === "get" ? "readonly" : "readwrite"), st = tx.objectStore("kv");
+            var r = op === "get" ? st.get(key) : st.put(val, key);
+            r.onsuccess = function () { resolve(op === "get" ? r.result : true); };
+            r.onerror = function () { resolve(null); };
+          } catch (e) { resolve(null); }
+        };
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  /* ---------- opening files ---------- */
+  var mediaFile = null, jsonFile = null, savedReply = null;
+  idb("get", "transcript").then(function (v) {
+    if (v && v.text) { savedReply = v; $("jsonInfo").textContent = "Saved from last time: " + v.name + ". Choose a file here only to replace it."; $("jsonInfo").className = "got"; ready(); }
+  });
+  $("mediaFile").addEventListener("change", function (e) {
+    mediaFile = e.target.files[0] || null;
+    $("mediaInfo").textContent = mediaFile ? mediaFile.name + " (" + (mediaFile.size / 1e6).toFixed(1) + " MB)" : "mp4, mp3, m4a, wav, ...";
+    $("mediaInfo").className = mediaFile ? "got" : "muted"; ready();
+  });
+  $("jsonFile").addEventListener("change", function (e) {
+    jsonFile = e.target.files[0] || null;
+    if (jsonFile) { $("jsonInfo").textContent = jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)"; $("jsonInfo").className = "got"; }
+    ready();
+  });
+  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || savedReply)); }
+
+  $("startBtn").addEventListener("click", function () {
+    $("loadMsg").textContent = "";
+    if (!jsonFile) { open(JSON.parse(savedReply.text), savedReply.name, savedReply.text); return; }
+    var reader = new FileReader();
+    reader.onerror = function () { $("loadMsg").textContent = "Could not read the transcript file."; };
+    reader.onload = function () {
+      var reply;
+      try { reply = JSON.parse(reader.result); } catch (e) { $("loadMsg").textContent = "This file is not a transcript JSON. Choose the file you copied from the ElevenLabs response."; return; }
+      if (!reply.words || !reply.words.length) { $("loadMsg").textContent = "This transcript has no word list. Run it again with timestamps set to word."; return; }
+      open(reply, jsonFile.name, reader.result);
+    };
+    reader.readAsText(jsonFile);
+  });
+
+  function migrate(old) {      // edits made before speaker lines existed: label each paragraph if the count matches
+    var edits = {};
+    for (var k in old.edits || {}) {
+      var c = S.chunks[+k]; if (!c || !String(old.edits[k]).trim()) continue;
+      var t = old.edits[k], lines = t.split(/\n+/).filter(function (x) { return x.trim(); });
+      edits[k] = (!LABEL.test(t) && lines.length === c.runs.length)
+        ? lines.map(function (ln, n) { return roleOf(c.runs[n].speaker) + ": " + ln.trim(); }).join("\n") : t;
+    }
+    return edits;
+  }
+
+  function open(reply, name, rawText) {
+    S.chunks = buildChunks(reply); S.shown = false;
+    S.speakers = S.chunks.speakerOrder || [];
+    var id = reply.transcription_id || (S.chunks.length + ":" + (S.chunks[0] && S.chunks[0].rawRuns[0] ? S.chunks[0].rawRuns[0].text.slice(0, 30) : ""));
+    S.key = "corrector2:" + id;
+    S.interviewer = S.speakers[0] || null;
+    var saved = store("get");
+    if (saved) { S.edits = saved.edits || {}; S.done = saved.done || {}; S.interviewer = saved.interviewer || S.interviewer; S.reviewWords = saved.reviewWords || REVIEW_DEFAULT.slice(); S.autoSwitch = saved.autoSwitch !== false; }
+    else {
+      var old = store("get", null, "corrector:" + id);
+      S.edits = old ? migrate(old) : {}; S.done = old ? (old.done || {}) : {}; S.reviewWords = REVIEW_DEFAULT.slice();
+    }
+    persist();
+    idb("set", "transcript", { name: name, text: rawText });
+    if (S.mediaUrl) URL.revokeObjectURL(S.mediaUrl);
+    S.mediaUrl = URL.createObjectURL(mediaFile);
+    video.src = S.mediaUrl;
+    if (!$("xName").value) $("xName").value = mediaFile.name.replace(/\.[^.]+$/, "");
+    $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
+    buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
+    var first = 0;
+    for (var i = 0; i < S.chunks.length; i++) { if (!S.done[i]) { first = i; break; } }
+    select(first, false);
+    updateProgress();
+  }
+
+  /* ---------- the script: the whole interview as one flowing text, like oTranscribe ---------- */
+  var proseTimer = 0, proseNow = -1, userScrollUntil = 0;
+  function chunkAt(t) {
+    var lo = 0, hi = S.chunks.length - 1, ans = 0;
+    while (lo <= hi) { var mid = (lo + hi) >> 1; if (S.chunks[mid].start <= t + 0.05) { ans = mid; lo = mid + 1; } else hi = mid - 1; }
+    return ans;
+  }
+  function segClass(i) { return "seg" + (S.done[i] ? " done" : "") + (isFlagged(i) && !S.done[i] ? " flagged" : "") + (hasEdit(i) && !S.done[i] ? " edited" : "") + (i === S.idx ? " cur" : "") + (i === proseNow ? " now" : ""); }
+  function buildProse() {
+    var turnsArr = [], cur = null, pane = $("prosePane"), top = pane.scrollTop;
+    scheduleRail();
+    S.chunks.forEach(function (c, i) {
+      parseLines(textOf(i)).forEach(function (l) {
+        var span = '<span class="' + segClass(i) + '" data-i="' + i + '">' + bodyHTML(l.text) + "</span>";
+        if (cur && cur.label === l.label) cur.parts.push(span); else { cur = { label: l.label, ts: c.start, parts: [span] }; turnsArr.push(cur); }
+      });
+    });
+    $("prose").innerHTML = turnsArr.map(function (t) {
+      return '<p class="turn ' + (t.label.charAt(0) === "I" ? "i" : "r") + '"><span class="ts" role="button">' + fmt(t.ts) + '</span> <span class="lab">' + t.label + ":</span> " + t.parts.join(" ") + "</p>";
+    }).join("");
+    pane.scrollTop = top;
+  }
+  function scheduleProse() { clearTimeout(proseTimer); proseTimer = setTimeout(buildProse, 250); }
+  function paintItem(i) {          // colours only; the text itself is redrawn by scheduleProse()
+    scheduleRail();
+    Array.prototype.forEach.call($("prose").querySelectorAll('.seg[data-i="' + i + '"]'), function (el) { el.className = segClass(i); });
+  }
+  function scrollProseTo(el, smooth, always) {      // keep a section in view without moving the page or the editor
+    var pane = $("prosePane"), pr = pane.getBoundingClientRect(), r = el.getBoundingClientRect();
+    if (!always && r.top >= pr.top + 8 && r.bottom <= pr.bottom - 8) return;
+    pane.scrollTo({ top: pane.scrollTop + (r.top - pr.top) - pane.clientHeight / 3, behavior: smooth ? "smooth" : "auto" });
+  }
+  function markNow(force) {           // the section being heard
+    if (!railDrag) placeThumb(video.currentTime);
+    var i = chunkAt(video.currentTime);
+    if (i === proseNow && !force) return;
+    var old = proseNow; proseNow = i;
+    if (old >= 0) paintItem(old);
+    paintItem(i);
+    var first = $("prose").querySelector('.seg[data-i="' + i + '"]'), j = i;
+    while (!first && j > 0) { j -= 1; first = $("prose").querySelector('.seg[data-i="' + j + '"]'); }
+    if (first && (force || ($("follow").checked && Date.now() > userScrollUntil))) scrollProseTo(first, !force);
+    $("nowInfo").textContent = "Playing chunk " + (i + 1) + " · " + fmt(video.currentTime);
+  }
+  ["wheel", "touchstart", "touchmove"].forEach(function (ev) {      // reading ahead: do not pull the page back to the audio
+    $("prosePane").addEventListener(ev, function () { userScrollUntil = Date.now() + 8000; }, { passive: true });
+  });
+  $("prosePane").addEventListener("click", function (e) {
+    var ts = e.target.closest(".ts"), el = ts ? ts.parentNode.querySelector(".seg") : e.target.closest(".seg");
+    if (!el) return;
+    userScrollUntil = Date.now() + 8000;
+    select(+el.dataset.i, true); S.oneShot = null;
+  });
+  // buttons and the script never take focus from the editor, so the on-screen keyboard stays up
+  document.addEventListener("mousedown", function (e) { if (e.target.closest("button, #prosePane")) e.preventDefault(); });
+
+  function updateProgress() {
+    var n = 0; for (var k in S.done) { if (S.done[k]) n += 1; }
+    $("progLabel").textContent = n + " of " + S.chunks.length + " chunks checked";
+    $("progFill").style.width = (S.chunks.length ? (100 * n / S.chunks.length) : 0) + "%";
+  }
+
+  /* ---------- editing ---------- */
+  function showPreview() { $("previewBody").innerHTML = previewHTML($("text").value); }
+  function stash() {          // keep what is typed, without marking the chunk as checked
+    if (!S.chunks.length || !S.shown) return;
+    var v = $("text").value, i = S.idx;
+    if (v !== textOf(i)) {
+      if (v === origText(i)) delete S.edits[i]; else S.edits[i] = v;
+      persist(); paintItem(i); scheduleProse();
+    }
+  }
+  function who(i) {
+    var l = parseLines(textOf(i)).map(function (x) { return x.label; });
+    var hasI = l.some(function (x) { return x.charAt(0) === "I"; }), hasR = l.some(function (x) { return x.charAt(0) === "R"; });
+    return hasI && hasR ? "Interviewer + respondent" : hasI ? "Interviewer" : "Respondent";
+  }
+  function select(i, play, keepAudio) {
+    if (!S.chunks.length) return;
+    stash(); S.dirty = false;
+    S.shown = true;
+    i = Math.max(0, Math.min(S.chunks.length - 1, i));
+    var prev = S.idx; S.idx = i; paintItem(prev); paintItem(i);
+    var c = S.chunks[i];
+    $("cTitle").textContent = "Chunk " + (i + 1) + " of " + S.chunks.length;
+    $("cTime").textContent = fmt(c.start) + " – " + fmt(c.end);
+    $("cSpk").textContent = who(i);
+    var st = $("cState");
+    if (S.done[i]) { st.textContent = "checked"; st.className = "pill done"; }
+    else if (isFlagged(i)) { st.textContent = "check: " + flagsOf(i).join("; "); st.className = "pill flag"; }
+    else { st.textContent = "not checked yet"; st.className = "pill"; }
+    var ta = $("text");
+    ta.value = textOf(i); showPreview();
+    $("origWrap").hidden = !hasEdit(i); $("original").textContent = origText(i).replace(/\n/g, "  ");
+    var el = $("prose").querySelector('.seg[data-i="' + i + '"]'); if (el) scrollProseTo(el, false);
+    if (!keepAudio) {
+      video.pause();
+      try { video.currentTime = c.start; } catch (e) { /* metadata not ready yet */ }
+      if (play) playNow();
+    }
+    ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length);     // ready to type straight away
+  }
+  function beginEdit() { S.dirty = true; if (!video.paused) video.pause(); }      // typing stops the audio; saving starts it again
+  function saveAnd(mode) {
+    stash(); S.done[S.idx] = true; S.dirty = false; persist(); paintItem(S.idx); updateProgress();
+    var next = Math.min(S.idx + 1, S.chunks.length - 1);
+    select(next, true);
+    S.oneShot = mode === "chunk" ? next : null;       // "next chunk": play it and stop. "continue": keep going through the whole script
+  }
+  function saveNext() { saveAnd("chunk"); }
+  function nextFlagged() {
+    for (var step = 1; step <= S.chunks.length; step++) {
+      var j = (S.idx + step) % S.chunks.length;
+      if (!S.done[j] && isFlagged(j)) { select(j, true); return; }
+    }
+    toast("No unchecked flagged chunks left");
+  }
+  function editPlaying() { video.pause(); select(chunkAt(video.currentTime), false, true); }      // the section being heard goes into the editor
+  function switchLine() {         // I: <-> R: on the line with the cursor
+    var ta = $("text"), v = ta.value, pos = ta.selectionStart;
+    var a = v.lastIndexOf("\n", pos - 1) + 1, b = v.indexOf("\n", pos); if (b < 0) b = v.length;
+    var line = v.slice(a, b), m = LABEL.exec(line), body = line.replace(LABEL, "");
+    var next = m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " : "I: ";
+    ta.value = v.slice(0, a) + next + body + v.slice(b);
+    var p = a + next.length + Math.max(0, pos - a - (m ? m[0].length : 0));
+    ta.setSelectionRange(p, p); beginEdit(); showPreview(); stash(); $("cSpk").textContent = who(S.idx);
+  }
+  $("text").addEventListener("input", function (e) {
+    var ta = e.target; beginEdit();
+    if (e.inputType === "insertText" && e.data && /^\p{Ll}$/u.test(e.data)) {       // a new sentence or a new line starts with a capital
+      var v = ta.value, pos = ta.selectionStart, a = v.lastIndexOf("\n", pos - 2) + 1, before = v.slice(a, pos - 1);
+      var m = LABEL.exec(before + "x");
+      if ((m && before.length === m[0].length) || /(^|[.?!]["')”’]?\s)$/.test(before) || before === "") {
+        ta.setRangeText(e.data.toUpperCase(), pos - 1, pos, "end");
+      }
+    }
+    showPreview();
+  });
+  $("text").addEventListener("keydown", function (e) {        // Enter: the new line belongs to the other speaker
+    if (e.key !== "Enter" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || !S.autoSwitch) return;
+    var ta = e.target, v = ta.value, pos = ta.selectionStart;
+    var a = v.lastIndexOf("\n", pos - 1) + 1, lineText = v.slice(a).split("\n")[0], m = LABEL.exec(lineText);
+    if (!m || pos < a + m[0].length) return;                  // a line without a label, or the cursor is inside the label: plain new line
+    e.preventDefault();
+    ta.setRangeText("\n" + (m[1].charAt(0) === "I" ? "R" : "I") + ": ", ta.selectionStart, ta.selectionEnd, "end");
+    beginEdit(); showPreview(); $("cSpk").textContent = who(S.idx);
+  });
+  $("autoSwitch").addEventListener("change", function () { S.autoSwitch = $("autoSwitch").checked; persist(); });
+
+  /* ---------- formatting the selection: bold, italic, not Swahili ---------- */
+  var MARKS = { bold: "**", italic: "_", plain: "~" };
+  function lineSegments(v, a, b) {           // the parts of the selection, line by line, never touching the I: / R: label
+    var segs = [], pos = a;
+    for (;;) {
+      var ls = v.lastIndexOf("\n", pos - 1) + 1, le = v.indexOf("\n", pos); if (le < 0) le = v.length;
+      var s0 = Math.max(a, ls), e0 = Math.min(b, le), m = LABEL.exec(v.slice(ls, le));
+      if (m && s0 < ls + m[0].length) s0 = ls + m[0].length;
+      while (s0 < e0 && /\s/.test(v.charAt(s0))) s0++;
+      while (e0 > s0 && /\s/.test(v.charAt(e0 - 1))) e0--;
+      if (e0 > s0) segs.push([s0, e0]);
+      if (le >= b) break;
+      pos = le + 1;
+    }
+    return segs;
+  }
+  function wordAt(v, pos) {
+    var re = /[\p{L}\p{N}'’-]+/gu, m;
+    while ((m = re.exec(v))) { if (pos >= m.index && pos <= m.index + m[0].length) return [m.index, m.index + m[0].length]; }
+    return null;
+  }
+  function removeKind(seg, kind) {
+    return kind === "bold" ? seg.replace(/\*\*/g, "") : kind === "italic" ? seg.replace(/_(.+?)_/g, "$1") : seg.replace(/~/g, "");
+  }
+  function formatSel(kind) {
+    var ta = $("text"), v = ta.value, a = ta.selectionStart, b = ta.selectionEnd;
+    if (a === b) { var w = wordAt(v, a); if (!w) { toast("Select some text first"); return; } a = w[0]; b = w[1]; }   // no selection: the word under the cursor
+    var segs = lineSegments(v, a, b);
+    if (!segs.length) { toast("Select some text first"); return; }
+    var info = [];                                  // per piece: where its text starts and ends afterwards, and how much the length changed
+    for (var n = segs.length - 1; n >= 0; n--) {
+      var s0 = segs[n][0], e0 = segs[n][1], seg = v.slice(s0, e0), rec;
+      if (kind === "clear") {
+        var grew = true;
+        while (grew) {                       // take in marks that sit right outside the selection
+          grew = false;
+          ["**", "_", "~"].forEach(function (mk2) { if (v.slice(s0 - mk2.length, s0) === mk2 && v.slice(e0, e0 + mk2.length) === mk2) { s0 -= mk2.length; e0 += mk2.length; grew = true; } });
+        }
+        var cleaned = stripMarks(v.slice(s0, e0));
+        rec = { start: s0, end: s0 + cleaned.length, delta: cleaned.length - (e0 - s0) };
+        v = v.slice(0, s0) + cleaned + v.slice(e0);
+      } else {
+        var mk = MARKS[kind];
+        if (v.slice(s0 - mk.length, s0) === mk && v.slice(e0, e0 + mk.length) === mk) {            // already marked: take the mark off
+          rec = { start: s0 - mk.length, end: s0 - mk.length + seg.length, delta: -2 * mk.length };
+          v = v.slice(0, s0 - mk.length) + seg + v.slice(e0 + mk.length);
+        } else {
+          var inner = removeKind(seg, kind);
+          rec = { start: s0 + mk.length, end: s0 + mk.length + inner.length, delta: inner.length + 2 * mk.length - seg.length };
+          v = v.slice(0, s0) + mk + inner + mk + v.slice(e0);
+        }
+      }
+      info[n] = rec;
+    }
+    var shift = 0; for (var q = 0; q < info.length - 1; q++) shift += info[q].delta;
+    ta.value = v; ta.focus({ preventScroll: true });
+    ta.setSelectionRange(info[0].start, info[info.length - 1].end + shift);          // the text stays selected, so B then I can be tapped one after the other
+    beginEdit(); showPreview(); stash();
+  }
+  $("mBold").onclick = function () { formatSel("bold"); };
+  $("mItalic").onclick = function () { formatSel("italic"); };
+  $("mPlain").onclick = function () { formatSel("plain"); };
+  $("mClear").onclick = function () { formatSel("clear"); };
+
+  /* ---------- playback (the recording is heard, not shown) ---------- */
+  function playNow() { var p = video.play(); if (p && p.catch) p.catch(function () { /* needs a tap first */ }); }
+  function togglePlay() {
+    S.oneShot = null;
+    if (video.paused) { var c = S.chunks[S.idx]; if (holdsToChunk() && c && (video.currentTime >= c.end - 0.05 || video.currentTime < c.start - 0.5)) video.currentTime = c.start; playNow(); }
+    else video.pause();
+  }
+  function holdsToChunk() { return $("stopEnd").checked || S.dirty || S.oneShot === S.idx; }       // while you edit, the audio stays inside the chunk
+  function seekBy(d) {
+    var c = S.chunks[S.idx], t = video.currentTime + d;
+    if (holdsToChunk() && c) t = Math.max(c.start, Math.min(c.end - 0.1, t));
+    video.currentTime = Math.max(0, t);
+  }
+  function setSpeed(d) {
+    var r = Math.round((video.playbackRate + d) * 100) / 100;
+    video.playbackRate = Math.max(0.5, Math.min(2, r));
+    $("speed").textContent = video.playbackRate.toFixed(2) + "×";
+  }
+  var stopTimer = 0;
+  function checkStop() {          // checked every 60 ms while playing, so the audio stops at the end of the chunk, not a moment after
+    var c = S.chunks[S.idx];
+    if (c && holdsToChunk() && !video.paused && video.currentTime >= c.end) { video.pause(); video.currentTime = c.end; S.oneShot = null; }
+  }
+  video.addEventListener("timeupdate", function () { markNow(false); checkStop(); });
+  video.addEventListener("play", function () { $("bPlay").textContent = "Pause"; clearInterval(stopTimer); stopTimer = setInterval(checkStop, 60); });
+  video.addEventListener("pause", function () { $("bPlay").textContent = "Play"; clearInterval(stopTimer); });
+  video.addEventListener("loadedmetadata", function () { var c = S.chunks[S.idx]; if (c) video.currentTime = c.start; });
+  video.addEventListener("error", function () { toast("This recording could not be played here. Try the audio file instead."); });
+
+  $("bPlay").onclick = togglePlay; $("bBack").onclick = function () { seekBy(-3); }; $("bFwd").onclick = function () { seekBy(3); };
+  $("bSlow").onclick = function () { setSpeed(-0.25); }; $("bFast").onclick = function () { setSpeed(0.25); };
+  $("bPrev").onclick = function () { select(S.idx - 1, true); }; $("bSave").onclick = saveNext; $("bSaveGo").onclick = function () { saveAnd("continue"); }; $("bFlag").onclick = nextFlagged;
+  $("bHear").onclick = editPlaying; $("bNow").onclick = function () { userScrollUntil = 0; markNow(true); };
+  $("bLine").onclick = function () { $("text").focus(); switchLine(); };
+  $("bReset").onclick = function () { $("text").value = origText(S.idx); stash(); S.dirty = false; select(S.idx, false, true); };
+  $("text").addEventListener("blur", stash);
+
+  document.addEventListener("keydown", function (e) {
+    if ($("work").hidden) return;
+    var k = e.key;
+    if (k === "Escape") { e.preventDefault(); togglePlay(); }
+    else if (k === "F1") { e.preventDefault(); seekBy(-3); }
+    else if (k === "F2") { e.preventDefault(); seekBy(3); }
+    else if (k === "F3") { e.preventDefault(); setSpeed(-0.25); }
+    else if (k === "F4") { e.preventDefault(); setSpeed(0.25); }
+    else if ((e.ctrlKey || e.metaKey) && k === "Enter") { e.preventDefault(); saveAnd(e.shiftKey ? "continue" : "chunk"); }
+    else if (e.altKey && k === "ArrowDown") { e.preventDefault(); select(S.idx + 1, true); }
+    else if (e.altKey && k === "ArrowUp") { e.preventDefault(); select(S.idx - 1, true); }
+    else if (e.altKey && (k === "n" || k === "N")) { e.preventDefault(); nextFlagged(); }
+    else if (e.altKey && (k === "e" || k === "E")) { e.preventDefault(); editPlaying(); }
+    else if (e.altKey && (k === "i" || k === "I")) { e.preventDefault(); $("text").focus(); switchLine(); }
+    else if ((e.ctrlKey || e.metaKey) && (k === "b" || k === "B") && document.activeElement === $("text")) { e.preventDefault(); formatSel("bold"); }
+    else if ((e.ctrlKey || e.metaKey) && (k === "i" || k === "I") && document.activeElement === $("text")) { e.preventDefault(); formatSel("italic"); }
+    else if ((e.ctrlKey || e.metaKey) && (k === "s" || k === "S")) { e.preventDefault(); stash(); toast("Saved in this browser"); }
+  });
+
+  /* ---------- the rail ---------- */
+  var railDrag = null, railRaf = 0;
+  function totalTime() {
+    var d = video.duration, last = S.chunks.length ? S.chunks[S.chunks.length - 1].end : 0;
+    return (isFinite(d) && d > 0) ? Math.max(d, 1) : Math.max(last, 1);
+  }
+  function drawRail() {
+    railRaf = 0;
+    var cv = $("railCanvas"), rail = $("rail"), w = rail.clientWidth, h = rail.clientHeight;
+    if (!w || !h || !S.chunks.length) return;
+    var dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var g = cv.getContext("2d"); g.scale(dpr, dpr);
+    var cs = getComputedStyle(document.documentElement), dur = totalTime();
+    var ok = cs.getPropertyValue("--ok").trim(), flag = cs.getPropertyValue("--flag").trim(), warn = cs.getPropertyValue("--warn").trim(), accent = cs.getPropertyValue("--accent").trim();
+    S.chunks.forEach(function (c, i) {
+      var y = c.start / dur * h, bh = Math.max(2, (c.end - c.start) / dur * h);
+      if (S.done[i]) { g.globalAlpha = 0.5; g.fillStyle = ok; g.fillRect(5, y, w - 10, bh); }
+      else if (isFlagged(i)) { g.globalAlpha = 1; g.fillStyle = flag; g.fillRect(2, y, w - 4, Math.max(3, bh)); }
+      else if (hasEdit(i)) { g.globalAlpha = 0.8; g.fillStyle = warn; g.fillRect(8, y, w - 16, bh); }
+    });
+    g.globalAlpha = 1;
+    var cur = S.chunks[S.idx]; if (cur) { g.fillStyle = accent; g.fillRect(0, cur.start / dur * h, w, 2); }       // the chunk in the editor
+  }
+  function scheduleRail() { if (!railRaf) railRaf = requestAnimationFrame(drawRail); }
+  function placeThumb(t) {
+    var rail = $("rail"), h = rail.clientHeight, f = Math.max(0, Math.min(1, t / totalTime()));
+    $("railThumb").style.transform = "translateY(" + (f * Math.max(0, h - 14)) + "px)";
+    rail.setAttribute("aria-valuenow", String(Math.round(t))); rail.setAttribute("aria-valuemax", String(Math.round(totalTime())));
+  }
+  function railTime(e) {
+    var r = $("rail").getBoundingClientRect(), f = (e.clientY - r.top - 7) / Math.max(1, r.height - 14);
+    return Math.max(0, Math.min(1, f)) * totalTime();
+  }
+  function railMove(e) {                   // while dragging: the thumb, the time and the script move, the audio waits until you let go
+    var t = railTime(e); railDrag.t = t; placeThumb(t);
+    var tip = $("railTip"); tip.hidden = false; tip.textContent = fmt(t);
+    tip.style.top = Math.max(0, Math.min($("rail").clientHeight - 24, (t / totalTime()) * ($("rail").clientHeight - 14) - 4)) + "px";
+    var el = $("prose").querySelector('.seg[data-i="' + chunkAt(t) + '"]'); if (el) scrollProseTo(el, false, true);
+  }
+  function railEnd() {
+    if (!railDrag) return;
+    var t = railDrag.t; railDrag = null; $("railTip").hidden = true;
+    video.currentTime = t; proseNow = -1; markNow(true);
+  }
+  $("rail").addEventListener("pointerdown", function (e) { e.preventDefault(); $("rail").setPointerCapture(e.pointerId); railDrag = { t: 0 }; userScrollUntil = Date.now() + 8000; railMove(e); });
+  $("rail").addEventListener("pointermove", function (e) { if (railDrag) railMove(e); });
+  $("rail").addEventListener("pointerup", railEnd);
+  $("rail").addEventListener("pointercancel", railEnd);
+  $("rail").addEventListener("keydown", function (e) {
+    var d = e.key === "ArrowUp" ? -10 : e.key === "ArrowDown" ? 10 : e.key === "PageUp" ? -60 : e.key === "PageDown" ? 60 : 0;
+    if (d) { e.preventDefault(); video.currentTime = Math.max(0, video.currentTime + d); }
+  });
+  window.addEventListener("resize", function () { scheduleRail(); placeThumb(video.currentTime); });
+  video.addEventListener("loadedmetadata", function () { scheduleRail(); placeThumb(video.currentTime); });
+  video.addEventListener("seeked", function () { if (!railDrag) placeThumb(video.currentTime); });
+
+  /* ---------- colours: warm, light, night ---------- */
+  var SKINS = ["warm", "light", "night"], SKIN_NAME = { warm: "Warm theme", light: "Light theme", night: "Night theme" };
+  function applySkin(k) { document.documentElement.setAttribute("data-skin", k); scheduleRail(); $("tTheme").textContent = SKIN_NAME[k]; try { localStorage.setItem("corrector-skin", k); } catch (e) { /* not saved */ } }
+  var skin = "warm"; try { skin = localStorage.getItem("corrector-skin") || "warm"; } catch (e) { /* default */ }
+  applySkin(SKINS.indexOf(skin) >= 0 ? skin : "warm");
+  $("tTheme").onclick = function () { applySkin(SKINS[(SKINS.indexOf(document.documentElement.getAttribute("data-skin")) + 1) % SKINS.length]); };
+
+  /* ---------- tool panels ---------- */
+  var PANELS = { tFix: "pFix", tRev: "pRev", tSpk: "pSpk", tOut: "pOut" };
+  Object.keys(PANELS).forEach(function (btn) {
+    $(btn).addEventListener("click", function () {
+      var show = $(PANELS[btn]).hidden;
+      Object.keys(PANELS).forEach(function (b) { $(PANELS[b]).hidden = true; $(b).setAttribute("aria-pressed", "false"); });
+      if (show) { $(PANELS[btn]).hidden = false; $(btn).setAttribute("aria-pressed", "true"); if (btn === "tOut") showRich(); }
+    });
+  });
+
+  /* ---------- fix everywhere ---------- */
+  function escRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+  function makeRegex() {
+    var find = $("fFind").value;
+    if (!find) return null;
+    var src = $("fRegex").checked ? find : escRe(find);
+    if (!$("fRegex").checked && $("fWhole").checked) src = "(?<![\\p{L}\\p{N}'’])" + src + "(?![\\p{L}\\p{N}'’])";
+    try { return new RegExp(src, "gu" + ($("fCase").checked ? "" : "i")); } catch (e) { $("fMsg").textContent = "That pattern is not valid."; return null; }
+  }
+  function previewReplace() {
+    var re = makeRegex(); if (!re) return null;
+    var chunks = 0, hits = 0;
+    for (var i = 0; i < S.chunks.length; i++) { var m = textOf(i).match(re); if (m) { chunks += 1; hits += m.length; } }
+    $("fMsg").textContent = hits + " match" + (hits === 1 ? "" : "es") + " in " + chunks + " chunk" + (chunks === 1 ? "" : "s");
+    return re;
+  }
+  function tidy(t) {          // after a replacement: no double spaces, no lines that only hold a label
+    return t.split("\n").map(function (l) { return l.replace(/[ \t]{2,}/g, " ").trim(); })
+      .filter(function (l) { return l && !/^[IR]\d*:$/.test(l); }).join("\n");
+  }
+  $("fPreview").onclick = previewReplace;
+  $("fApply").onclick = function () {
+    stash();
+    var re = previewReplace(); if (!re) return;
+    var repl = $("fRepl").value, before = {}, n = 0;
+    for (var i = 0; i < S.chunks.length; i++) {
+      var t = textOf(i), u = tidy(t.replace(re, repl));
+      if (u !== t) { before[i] = hasEdit(i) ? S.edits[i] : null; if (u === origText(i)) delete S.edits[i]; else S.edits[i] = u; n += 1; paintItem(i); }
+    }
+    S.undo = before; $("fUndo").disabled = !n; persist(); scheduleProse();
+    $("text").value = textOf(S.idx); showPreview();
+    $("fMsg").textContent = "Replaced in " + n + " chunk" + (n === 1 ? "" : "s");
+  };
+  $("fUndo").onclick = function () {
+    if (!S.undo) return;
+    for (var k in S.undo) { if (S.undo[k] === null) delete S.edits[k]; else S.edits[k] = S.undo[k]; paintItem(+k); }
+    S.undo = null; $("fUndo").disabled = true; persist(); scheduleProse(); $("text").value = textOf(S.idx); showPreview();
+    $("fMsg").textContent = "Undone";
+  };
+  $("fBack").onclick = function () {
+    $("fFind").value = "\\b(?:Mm-hmm|Mhm|Uh-huh|Mm)\\b[.,]?[ \\t]*"; $("fRepl").value = ""; $("fRegex").checked = true; $("fCase").checked = false;
+    previewReplace();
+  };
+
+  /* ---------- words to review ---------- */
+  function showReview() { $("rList").textContent = S.reviewWords.length ? S.reviewWords.join(", ") : "none"; }
+  function afterReviewChange() { persist(); showReview(); scheduleProse(); select(S.idx, false, true); }
+  $("rAdd").onclick = function () {
+    var w = $("rWord").value.trim().toLowerCase().replace(/[^\p{L}\p{N}'\-]/gu, "");
+    if (!w) return;
+    if (S.reviewWords.indexOf(w) < 0) S.reviewWords.push(w);
+    $("rWord").value = ""; afterReviewChange();
+  };
+  $("rClear").onclick = function () { S.reviewWords = []; afterReviewChange(); };
+  $("rDefault").onclick = function () { S.reviewWords = REVIEW_DEFAULT.slice(); afterReviewChange(); };
+
+  /* ---------- who is the interviewer ---------- */
+  function buildSpeakers() {
+    var sel = $("spkSel"); sel.innerHTML = "";
+    S.speakers.forEach(function (name) {
+      var o = document.createElement("option"); o.value = name; o.textContent = name; if (name === S.interviewer) o.selected = true; sel.appendChild(o);
+    });
+    sel.onchange = function () {
+      stash();
+      var was = S.interviewer; S.interviewer = sel.value;
+      if (S.speakers.length === 2 && was !== S.interviewer) {          // two speakers: flip the labels you already edited
+        for (var k in S.edits) S.edits[k] = S.edits[k].split("\n").map(function (l) { var m = LABEL.exec(l); return m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " + l.replace(LABEL, "") : l; }).join("\n");
+      }
+      persist();
+      scheduleProse(); $("text").value = textOf(S.idx); showPreview();
+      $("spkMsg").textContent = "Done. " + S.interviewer + " is the interviewer (I:).";
+    };
+  }
+
+  /* ---------- export ---------- */
+  function turns() {          // lines of the same speaker run together, across chunk boundaries
+    stash();
+    var out = [];
+    S.chunks.forEach(function (c, i) {
+      parseLines(textOf(i)).forEach(function (l, n) {
+        var last = out[out.length - 1];
+        if (last && last.label === l.label && !(l.explicit && n === 0 && false)) last.text = joinText(last.text, l.text);
+        else out.push({ label: l.label, text: l.text, start: c.start });
+      });
+    });
+    return out;
+  }
+  function withTime() { return $("xT1").checked; }
+  function stamp(t) { return withTime() ? "[" + fmt(t.start) + "] " : ""; }
+  function richHTML() { return turns().map(function (t) { var b = bodyHTML(t.text); return "<p>" + stamp(t) + (t.label.charAt(0) === "I" ? "<b>" + t.label + ": " + b + "</b>" : t.label + ": " + b) + "</p>"; }).join(""); }
+  function plainText() { return turns().map(function (t) { return stamp(t) + t.label + ": " + stripMarks(t.text); }).join("\n\n") + "\n"; }
+  function srtTime(t) { var ms = Math.round(t * 1000), p = function (n, w) { return ("000" + n).slice(-w); }; return p(Math.floor(ms / 3600000), 2) + ":" + p(Math.floor(ms / 60000) % 60, 2) + ":" + p(Math.floor(ms / 1000) % 60, 2) + "," + p(ms % 1000, 3); }
+  function render(kind) {
+    stash();
+    if (kind === "txt") return plainText();
+    if (kind === "json") return JSON.stringify(S.chunks.map(function (c, i) {
+      return { start: c.start, end: c.end, checked: !!S.done[i], lines: parseLines(textOf(i)).map(function (l) { return { speaker: l.label, text: stripMarks(l.text) }; }) };
+    }), null, 1);
+    return S.chunks.map(function (c, i) {
+      return (i + 1) + "\n" + srtTime(c.start) + " --> " + srtTime(c.end) + "\n" + parseLines(textOf(i)).map(function (l) { return l.label + ": " + stripMarks(l.text); }).join(" ") + "\n";
+    }).join("\n") + "\n";
+  }
+  function showRich() { $("out").hidden = true; $("richOut").hidden = false; $("richOut").innerHTML = richHTML(); }
+  $("xT0").addEventListener("change", showRich); $("xT1").addEventListener("change", showRich);
+
+
+  /* ---------- the Word file: header with the name, title, I:/R: key, the script, "Page x of y" at the bottom ---------- */
+  function fmtSegs(text, b, i, noAuto) {        // runs with their own bold and italic: your marks first, Swahili italics for the rest
+    var re = new RegExp(MARK_SRC, "gu"), out = [], last = 0, m;
+    function plain(t) {
+      if (!t) return;
+      if (noAuto) { out.push({ t: t, b: b, i: i }); return; }
+      tokenize(t).forEach(function (it) {
+        if (it.gap) out.push({ t: it.gap, b: b, i: i });
+        it.segs.forEach(function (sg) { out.push({ t: sg[0], b: b, i: i || sg[1] === "sw" }); });
+      });
+    }
+    while ((m = re.exec(text))) {
+      plain(text.slice(last, m.index));
+      if (m[1] !== undefined) out = out.concat(fmtSegs(m[1], true, i, noAuto));
+      else if (m[2] !== undefined) out = out.concat(fmtSegs(m[2], b, true, true));
+      else out = out.concat(fmtSegs(m[3], b, i, true));
+      last = m.index + m[0].length;
+    }
+    plain(text.slice(last));
+    var merged = [];
+    out.forEach(function (sg) { var p = merged[merged.length - 1]; if (p && p.b === sg.b && p.i === sg.i) p.t += sg.t; else merged.push({ t: sg.t, b: sg.b, i: sg.i }); });
+    return merged;
+  }
+  function xe(t) { return String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ""); }
+  var RPR_BASE = '<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/>', RPR_SIZE = '<w:sz w:val="24"/><w:szCs w:val="24"/>';   // Times New Roman 12 pt everywhere
+  function runXml(sg, caps) {
+    return "<w:r><w:rPr>" + RPR_BASE + (sg.b ? "<w:b/>" : "") + (sg.i ? "<w:i/>" : "") + (caps ? "<w:caps/>" : "") + RPR_SIZE + '</w:rPr><w:t xml:space="preserve">' + xe(sg.t) + "</w:t></w:r>";
+  }
+  function fieldXml(code) { return '<w:fldSimple w:instr=" ' + code + ' "><w:r><w:rPr>' + RPR_BASE + RPR_SIZE + "</w:rPr><w:t>1</w:t></w:r></w:fldSimple>"; }
+  function paraXml(runs, jc) {              // single line spacing and one blank line (12 pt) after every paragraph
+    return '<w:p><w:pPr><w:spacing w:after="240" w:line="240" w:lineRule="auto"/>' + (jc ? '<w:jc w:val="' + jc + '"/>' : "") + "</w:pPr>" + runs + "</w:p>";
+  }
+  function buildDocx(name, timed) {
+    var NS = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+    var head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+    var body = "";
+    body += paraXml(runXml({ t: name.toUpperCase(), b: true, i: false }, true), "center");
+    body += paraXml(runXml({ t: "I: Interviewer", b: true, i: false }));
+    body += paraXml(runXml({ t: "R: Respondent", b: false, i: false }));
+    turns().forEach(function (t) {
+      var isI = t.label.charAt(0) === "I", segs = fmtSegs(t.text, isI, false, false);
+      var lead = (timed ? "[" + fmt(t.start) + "] " : "") + t.label + ": ";
+      body += paraXml(runXml({ t: lead, b: isI, i: false }) + segs.map(function (sg) { return runXml(sg); }).join(""));
+    });
+    body += '<w:sectPr><w:headerReference w:type="default" r:id="rId2"/><w:footerReference w:type="default" r:id="rId3"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>';
+    var files = {
+      "[Content_Types].xml": head + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>',
+      "_rels/.rels": head + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+      "word/_rels/document.xml.rels": head + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>',
+      "word/styles.xml": head + '<w:styles ' + NS + '><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="en-GB"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="240" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>',
+      "word/header1.xml": head + '<w:hdr ' + NS + '><w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + runXml({ t: name, b: false, i: false }) + "</w:p></w:hdr>",
+      "word/footer1.xml": head + '<w:ftr ' + NS + '><w:p><w:pPr><w:jc w:val="center"/></w:pPr>' + runXml({ t: "Page ", b: false, i: false }) + fieldXml("PAGE") + runXml({ t: " of ", b: false, i: false }) + fieldXml("NUMPAGES") + "</w:p></w:ftr>",
+      "word/document.xml": head + "<w:document " + NS + "><w:body>" + body + "</w:body></w:document>"
+    };
+    var zip = new window.JSZip();
+    Object.keys(files).forEach(function (k) { zip.file(k, files[k], { createFolders: false }); });
+    return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+  }
+  var downloadsCap = null;
+  if (window.claude && window.claude.use) {
+    window.claude.use("downloads").then(function (d) { downloadsCap = d; $("xDocx").hidden = !d; $("xLog").hidden = !d; $("xCsv").hidden = !d; $("xNoSave").hidden = !!d; }, function () { /* no saving here */ });
+  }
+
+  /* ---------- the corrections log: what Scribe wrote, what the cleaning did, what you changed (for the main project) ---------- */
+  function wordsOf2(t) { return stripMarks(t).replace(/^[ \t]*[IR]\d*:[ \t]*/gm, "").split(/\s+/).filter(Boolean); }
+  function normTok(w) { return w.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""); }
+  function diffWords(a, b) {                 // pairs of (words before, words after) where the two texts differ
+    var n = a.length, m = b.length, dp = [], i, j, pairs = [];
+    for (i = 0; i <= n; i++) { dp.push(new Array(m + 1).fill(0)); }
+    for (i = n - 1; i >= 0; i--) for (j = m - 1; j >= 0; j--) dp[i][j] = normTok(a[i]) === normTok(b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    i = 0; j = 0;
+    var del = [], ins = [];
+    function flush() { if (del.length || ins.length) { pairs.push([del.join(" "), ins.join(" ")]); del = []; ins = []; } }
+    while (i < n || j < m) {
+      if (i < n && j < m && normTok(a[i]) === normTok(b[j])) { flush(); i++; j++; }
+      else if (j < m && (i === n || dp[i][j + 1] >= dp[i + 1][j])) { ins.push(b[j]); j++; }
+      else { del.push(a[i]); i++; }
+    }
+    flush();
+    return pairs.filter(function (p) { return normTok(p[0]) !== normTok(p[1]); });
+  }
+  function buildLog() {
+    stash();
+    var chunks = [], changes = {}, added = {}, removed = {}, mixed = {}, nChanged = 0, nChecked = 0;
+    S.chunks.forEach(function (c, i) {
+      var cleaned = origText(i), fin = textOf(i), changed = fin !== cleaned;
+      if (S.done[i]) nChecked += 1;
+      chunks.push({ chunk: i + 1, start: c.start, end: c.end, checked: !!S.done[i], changed: changed,
+        scribe_raw: c.rawRuns.map(function (r) { return { speaker: r.speaker, text: r.text }; }), after_automatic_clean_up: cleaned, final: fin });
+      var re = new RegExp(MARK_SRC, "gu"), m;
+      while ((m = re.exec(fin))) {             // the marks you put on are language labels for the mixed words
+        if (m[2] !== undefined && tokenize(m[2]).every(function (it) { return !it.segs.some(function (sg) { return sg[1] === "sw"; }); })) added[m[2]] = (added[m[2]] || 0) + 1;
+        if (m[3] !== undefined && tokenize(m[3]).some(function (it) { return it.segs.some(function (sg) { return sg[1] === "sw"; }); })) removed[m[3]] = (removed[m[3]] || 0) + 1;
+      }
+      fin.split(/\s+/).forEach(function (w) {   // one word that is part Swahili and part English, written like _ni_break_ie_
+        if (/[_~]/.test(w) && /\p{L}/u.test(w.replace(/[_~*]/g, ""))) {
+          var parts = [], r2 = new RegExp(MARK_SRC, "gu"), last = 0, mm;
+          while ((mm = r2.exec(w))) {
+            if (mm.index > last) parts.push({ text: w.slice(last, mm.index), language: "auto" });
+            parts.push({ text: mm[1] || mm[2] || mm[3], language: mm[2] !== undefined ? "sw" : mm[3] !== undefined ? "en" : "bold" });
+            last = mm.index + mm[0].length;
+          }
+          if (last < w.length) parts.push({ text: w.slice(last), language: "auto" });
+          if (parts.length > 1 && parts.some(function (p) { return p.language === "sw"; }) && parts.some(function (p) { return p.language === "en" || p.language === "auto"; })) mixed[w] = parts;
+        }
+      });
+      if (changed) {
+        nChanged += 1;
+        diffWords(wordsOf2(cleaned), wordsOf2(fin)).forEach(function (p) {
+          var key = p[0] + "\u0001" + p[1]; (changes[key] = changes[key] || { from: p[0], to: p[1], count: 0, chunks: [] }).count += 1; changes[key].chunks.push(i + 1);
+        });
+      }
+    });
+    var list = Object.keys(changes).map(function (k) { return changes[k]; }).sort(function (a, b) { return b.count - a.count; });
+    return {
+      format: "kenyan-transcript-corrections/1", file: $("xName").value.trim() || "Transcript", saved_at: new Date().toISOString(),
+      source: "ElevenLabs Scribe, " + (S.chunks.length ? "transcription id " + (S.key.split(":")[1] || "") : ""),
+      note: "scribe_raw is the first transcript. after_automatic_clean_up is what this page showed. final is what a person corrected it to. Marks in final: **bold**, _italic_ = Swahili, ~plain~ = not Swahili.",
+      totals: { chunks: S.chunks.length, checked: nChecked, changed_by_person: nChanged, distinct_word_changes: list.length,
+        swahili_added_by_person: Object.keys(added).length, swahili_removed_by_person: Object.keys(removed).length, mixed_words: Object.keys(mixed).length },
+      word_changes: list, swahili_added_by_person: added, swahili_removed_by_person: removed,
+      mixed_words: Object.keys(mixed).map(function (w) { return { written: w, parts: mixed[w] }; }), chunks: chunks
+    };
+  }
+  function csvCell(v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+  function saveFile(fileName, data, okMsg) {
+    if (!downloadsCap) { $("outMsg").textContent = "Saving a file is not available in this view."; return; }
+    downloadsCap.save({ filename: fileName, data: data }).then(function () { $("outMsg").textContent = okMsg; },
+      function (err) { $("outMsg").textContent = err && err.code === "declined" ? "Not saved." : "Could not save the file here" + (err && err.message ? ": " + err.message : "."); });
+  }
+  $("xLog").addEventListener("click", function () {
+    var log = buildLog(), name = ($("xName").value.trim() || "Transcript").replace(/[\\/:*?"<>|]+/g, "-");
+    saveFile(name + " corrections log.json", JSON.stringify(log, null, 1), "Saved the corrections log: " + log.totals.changed_by_person + " chunks changed by a person, " + log.totals.distinct_word_changes + " different word changes.");
+  });
+  $("xCsv").addEventListener("click", function () {
+    var log = buildLog(), name = ($("xName").value.trim() || "Transcript").replace(/[\\/:*?"<>|]+/g, "-");
+    var rows = ["from,to,count,chunks"].concat(log.word_changes.map(function (c) { return [csvCell(c.from), csvCell(c.to), c.count, csvCell(c.chunks.slice(0, 20).join(" "))].join(","); }));
+    saveFile(name + " word changes.csv", rows.join("\n") + "\n", "Saved the word changes: " + log.word_changes.length + " rows.");
+  });
+
+  $("xDocx").addEventListener("click", function () {
+    var name = $("xName").value.trim() || "Transcript";
+    if (!window.JSZip) { $("outMsg").textContent = "The Word file tool did not load. Check the internet connection and reload."; return; }
+    stash();
+    buildDocx(name, withTime()).then(function (data) {
+      var fileName = name.replace(/[\\/:*?"<>|]+/g, "-") + (withTime() ? " (with timestamps)" : "") + ".docx";
+      return downloadsCap.save({ filename: fileName, data: data });
+    }).then(function () { $("outMsg").textContent = "Saved. Open it in Word or Google Docs: the page numbers and header come with it."; },
+      function (err) { $("outMsg").textContent = err && err.code === "declined" ? "Not saved." : "Could not save the file here" + (err && err.message ? ": " + err.message : "."); });
+  });
+
+  function copyRich() {
+    showRich();
+    var html = richHTML(), plain = plainText();
+    var done = function () { $("outMsg").textContent = "Copied with bold and italics. Paste it into Word or Google Docs."; };
+    var legacy = function () {
+      var el = $("richOut"), r = document.createRange(); r.selectNodeContents(el);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      var ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      if (ok) done(); else $("outMsg").textContent = "Text selected above. Long-press it and choose Copy.";
+    };
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([plain], { type: "text/plain" }) })]).then(done, legacy);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    legacy();
+  }
+  $("xRich").addEventListener("click", copyRich);
+  document.querySelectorAll("[data-fmt]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      $("richOut").hidden = true; $("out").hidden = false; $("out").value = render(b.dataset.fmt);
+      var done = function () { $("outMsg").textContent = "Copied. Paste it into a notes app or a document."; };
+      var fallback = function () { $("out").focus(); $("out").select(); $("outMsg").textContent = "Text selected below. Long-press it and choose Copy."; };
+      try { navigator.clipboard.writeText($("out").value).then(done, fallback); } catch (e) { fallback(); }
+    });
+  });
+})();

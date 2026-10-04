@@ -1,0 +1,150 @@
+<div id="app">
+  <header class="bar">
+    <h1>Transcript Corrector</h1>
+    <div class="progress" id="progress" hidden>
+      <span class="label" id="progLabel"></span>
+      <div class="track"><div class="fill" id="progFill"></div></div>
+    </div>
+    <button class="btn small" id="tTheme" title="Change the colours">Warm theme</button>
+    <div class="tools" id="tools" hidden>
+      <button class="btn" id="tFix" aria-pressed="false">Fix everywhere</button>
+      <button class="btn" id="tRev" aria-pressed="false">Flags</button>
+      <button class="btn" id="tSpk" aria-pressed="false">Speakers</button>
+      <button class="btn primary" id="tOut" aria-pressed="false">Export</button>
+    </div>
+  </header>
+
+  <section id="setup" aria-label="Open files">
+    <h2>Correct a transcript against its recording</h2>
+    <p class="muted" style="margin:0">Both files stay on this device. Nothing is uploaded. Your corrections and the transcript are kept in this browser, so if the page closes you only need to choose the video again.</p>
+    <div class="pick">
+      <label class="drop" for="mediaFile">
+        <span class="name">1. The video or audio</span>
+        <span class="muted" id="mediaInfo">mp4, mp3, m4a, wav, ...</span>
+        <input type="file" id="mediaFile" accept="video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm">
+      </label>
+      <label class="drop" for="jsonFile">
+        <span class="name">2. The transcript file from ElevenLabs</span>
+        <span class="muted" id="jsonInfo">the .json file (a .txt copy works too)</span>
+        <input type="file" id="jsonFile">
+      </label>
+    </div>
+    <button class="btn primary" id="startBtn" disabled>Open</button>
+    <div id="loadMsg" role="status"></div>
+  </section>
+
+  <section id="panels" hidden>
+    <div class="panel" id="pFix" hidden>
+      <h2>Fix everywhere</h2>
+      <div class="row">
+        <input class="field" id="fFind" placeholder="Find, for example: hospitali" aria-label="Find">
+        <input class="field" id="fRepl" placeholder="Replace with, for example: hospital" aria-label="Replace with">
+      </div>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="fWhole" checked> Whole word</label>
+        <label class="chk"><input type="checkbox" id="fCase"> Match case</label>
+        <label class="chk"><input type="checkbox" id="fRegex"> Pattern (regex)</label>
+        <button class="btn small" id="fPreview">Count</button>
+        <button class="btn small primary" id="fApply">Replace all</button>
+        <button class="btn small" id="fUndo" disabled>Undo last</button>
+      </div>
+      <div class="row">
+        <button class="btn small" id="fBack">Remove "Mm-hmm", "Uh-huh"</button>
+        <span class="muted" id="fMsg" role="status"></span>
+      </div>
+    </div>
+    <div class="panel" id="pRev" hidden>
+      <h2>Words to review</h2>
+      <div class="row"><input class="field" id="rWord" placeholder="A word to flag, for example: locummers" aria-label="Word to flag"><button class="btn small primary" id="rAdd">Flag word</button><button class="btn small" id="rDefault">Reset list</button><button class="btn small" id="rClear">Clear list</button></div>
+      <div class="row"><span class="muted">Chunks that contain these words are marked with a red ! until you fix the word. List: <span id="rList"></span></span></div>
+    </div>
+    <div class="panel" id="pSpk" hidden>
+      <h2>Speakers</h2>
+      <div class="row">
+        <select class="field" id="spkSel" aria-label="Interviewer speaker"></select>
+        <span class="muted" id="spkMsg" role="status">is the interviewer. Their lines start with I: and are bold. Everyone else is R: in plain text.</span>
+      </div>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="autoSwitch" checked> Pressing Enter starts a line for the other speaker (I and R swap)</label>
+      </div>
+      <div class="row"><span class="muted">Turn that off if the same speaker needs two lines in a row. Shift+Enter always keeps the same speaker. For a second interviewer or respondent type <b>I2:</b> or <b>R2:</b> at the start of a line.</span></div>
+    </div>
+    <div class="panel" id="pOut" hidden>
+      <h2>Export your corrected transcript</h2>
+      <div class="row">
+        <input class="field" id="xName" placeholder="File name (becomes the title and the header)" aria-label="File name" autocomplete="off">
+      </div>
+      <div class="row">
+        <label class="chk"><input type="radio" name="xt" id="xT0" checked> Without timestamps</label>
+        <label class="chk"><input type="radio" name="xt" id="xT1"> With timestamps</label>
+      </div>
+      <div class="row">
+        <button class="btn small primary" id="xDocx" hidden>Download Word file (.docx)</button>
+        <span class="muted" id="xNoSave">Saving a file is not available in this view. Use the copy buttons.</span>
+      </div>
+      <div class="row">
+        <button class="btn small" id="xLog" hidden title="Everything Scribe wrote, what the automatic clean-up did, and what you changed">Download corrections log (.json)</button>
+        <button class="btn small" id="xCsv" hidden title="Every word you changed, with how many times">Download word changes (.csv)</button>
+      </div>
+      <div class="row">
+        <button class="btn small" id="xRich">Copy formatted</button>
+        <button class="btn small" data-fmt="txt">Copy as plain text</button>
+        <button class="btn small" data-fmt="srt">Copy as SRT</button>
+        <button class="btn small" data-fmt="json">Copy as JSON</button>
+      </div>
+      <div class="row"><span class="muted" id="outMsg" role="status">The Word file is Times New Roman 12 pt with a blank line after every paragraph. It has the file name as the header and as a bold capital title, the I: and R: key, your script with its bold and italics, and "Page x of y" at the bottom.</span></div>
+      <div class="row"><div id="richOut" aria-label="Formatted export preview" style="width:100%"></div></div>
+      <div class="row"><textarea id="out" readonly aria-label="Export preview" hidden></textarea></div>
+    </div>
+  </section>
+
+  <main id="work" hidden>
+    <div id="prosePane" aria-label="Full script"><div id="prose"></div></div>
+    <div id="rail" role="slider" tabindex="0" aria-label="Position in the recording" aria-orientation="vertical" aria-valuemin="0" aria-valuenow="0"><canvas id="railCanvas"></canvas><div id="railThumb"></div><div id="railTip" hidden></div></div>
+    <section id="editPane" aria-label="Editor and controls">
+      <div class="transport">
+        <button class="btn primary" id="bPlay" title="Esc">Play</button>
+        <button class="btn" id="bBack" title="F1">&minus;3 s</button>
+        <button class="btn" id="bFwd" title="F2">+3 s</button>
+        <button class="btn" id="bSlow" title="F3">Slower</button>
+        <span class="speed" id="speed">1.00&times;</span>
+        <button class="btn" id="bFast" title="F4">Faster</button>
+      </div>
+      <div class="editbtns">
+        <button class="btn" id="bHear" title="Alt+E">Edit what I'm hearing</button>
+        <button class="btn" id="bNow">Show playing</button>
+        <label class="chk"><input type="checkbox" id="follow" checked> Follow</label>
+        <label class="chk" id="stopEndLabel"><input type="checkbox" id="stopEnd"> Stop at chunk end</label>
+        <span class="muted" id="nowInfo"></span>
+      </div>
+      <div class="meta">
+        <span class="ttl" id="cTitle"></span>
+        <span class="time" id="cTime"></span>
+        <span class="pill" id="cSpk"></span>
+        <span class="pill" id="cState"></span>
+      </div>
+      <div class="editbtns fmtbar" role="toolbar" aria-label="Format the selected text">
+        <span class="muted">Select text, then:</span>
+        <button class="btn fmt" id="mBold" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+        <button class="btn fmt" id="mItalic" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+        <button class="btn fmt" id="mPlain" title="Not Swahili: take off the automatic italics">Not Swahili</button>
+        <button class="btn fmt" id="mClear" title="Remove the formatting from the selection">Clear</button>
+      </div>
+      <textarea id="text" spellcheck="false" aria-label="Chunk text" autocapitalize="sentences"></textarea>
+      <div class="editbtns">
+        <button class="btn" id="bPrev">Previous</button>
+        <button class="btn primary" id="bSave" title="Ctrl+Enter">Save, play next chunk</button>
+        <button class="btn primary" id="bSaveGo" title="Ctrl+Shift+Enter">Save and continue</button>
+        <button class="btn" id="bFlag">Next flagged</button>
+        <button class="btn" id="bLine" title="Alt+I">Switch I:/R:</button>
+        <button class="btn" id="bReset">Restore original</button>
+      </div>
+      <div id="preview" aria-label="Formatted preview"><div class="cap">Formatted preview</div><div id="previewBody"></div></div>
+      <p class="muted" id="origWrap" style="margin:0" hidden>Original: <span id="original"></span></p>
+      <p class="legend">Each speaker gets a line: <b>I:</b> interviewer (bold), R: respondent. <i>Italic</i> marks Swahili. Select text and tap <b>B</b> or <i>I</i> to format it; the page shows it as <code>**bold**</code> or <code>_italic_</code> while you edit. Typing pauses the audio; saving starts it again. Tap any text in the script to load it here.</p>
+      <p class="keys"><kbd>Esc</kbd> play/pause &nbsp; <kbd>F1</kbd>/<kbd>F2</kbd> &minus;/+3 s &nbsp; <kbd>F3</kbd>/<kbd>F4</kbd> speed &nbsp; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> save, play next chunk &nbsp; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> save and continue &nbsp; <kbd>Alt</kbd>+<kbd>E</kbd> edit what I'm hearing &nbsp; <kbd>Alt</kbd>+<kbd>N</kbd> next flagged &nbsp; <kbd>Alt</kbd>+<kbd>I</kbd> switch I:/R: &nbsp; <kbd>Enter</kbd> new line for the other speaker</p>
+    </section>
+    <video id="video" class="hiddenmedia" playsinline preload="auto"></video>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
