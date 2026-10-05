@@ -44,13 +44,14 @@
           <span class="muted" id="mediaInfo">mp4, mp3, m4a, wav, ...</span>
           <input type="file" id="mediaFile" accept="video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm">
         </label>
-        <p class="name" style="margin:8px 0 0"><b>Step 3. The transcript from ElevenLabs</b></p>
-        <label class="drop" for="jsonFile">
-          <span class="muted" id="jsonInfo">the .json file (a .txt copy works too)</span>
-          <input type="file" id="jsonFile">
-        </label>
-        <textarea id="pasteBox" class="kt" placeholder="or paste the whole response here" aria-label="Pasted transcript" spellcheck="false"></textarea>
       </div>
+      <p class="name" style="margin:12px 0 4px"><b>Step 3. Paste the transcript JSON from ElevenLabs</b></p>
+      <p class="muted" style="margin:0 0 6px">In the ElevenLabs Response tab, copy the whole response (from the first <code>{</code> to the last <code>}</code>), then touch and hold in the box below and choose Paste.</p>
+      <textarea id="pasteBox" class="kt big" placeholder="Paste the transcript JSON here" aria-label="Pasted transcript JSON" spellcheck="false" autocomplete="off"></textarea>
+      <div class="row"><span id="pasteMsg" class="muted" role="status"></span><button class="btn small" id="pasteClear" hidden>Clear</button></div>
+      <details style="margin-top:6px"><summary class="muted">Or choose a saved .json (or .txt) file instead</summary>
+        <div class="pick"><label class="drop" for="jsonFile"><span class="muted" id="jsonInfo">the .json file</span><input type="file" id="jsonFile"></label></div>
+      </details>
       <div class="row">
         <input class="field" id="recName" placeholder="A name for this recording, for example Interview 2" aria-label="Recording name" autocomplete="off">
         <label class="chk"><input type="checkbox" id="keepMedia" checked> Keep the audio on this device</label>

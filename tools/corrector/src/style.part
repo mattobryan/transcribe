@@ -188,3 +188,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
 .lrow .lw { font-family: var(--font-text); font-size: 1.05rem; min-width: 8em; }
 .lrow .ln { font-size: .8rem; min-width: 7em; }
 .lrow input.lsplit { flex: 0 1 11em; min-height: 32px; padding: 3px 8px; font-family: var(--font-mono); font-size: .85rem; }
+
+textarea.kt.big { min-height: 11em; }
+#pasteMsg.good { color: var(--ok); font-weight: 500; }
+#pasteMsg.bad { color: var(--flag); }

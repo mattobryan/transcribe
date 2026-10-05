@@ -193,6 +193,10 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
 .lrow .lw { font-family: var(--font-text); font-size: 1.05rem; min-width: 8em; }
 .lrow .ln { font-size: .8rem; min-width: 7em; }
 .lrow input.lsplit { flex: 0 1 11em; min-height: 32px; padding: 3px 8px; font-family: var(--font-mono); font-size: .85rem; }
+
+textarea.kt.big { min-height: 11em; }
+#pasteMsg.good { color: var(--ok); font-weight: 500; }
+#pasteMsg.bad { color: var(--flag); }
 </style>
 
 <div id="app">
@@ -241,13 +245,14 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
           <span class="muted" id="mediaInfo">mp4, mp3, m4a, wav, ...</span>
           <input type="file" id="mediaFile" accept="video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm">
         </label>
-        <p class="name" style="margin:8px 0 0"><b>Step 3. The transcript from ElevenLabs</b></p>
-        <label class="drop" for="jsonFile">
-          <span class="muted" id="jsonInfo">the .json file (a .txt copy works too)</span>
-          <input type="file" id="jsonFile">
-        </label>
-        <textarea id="pasteBox" class="kt" placeholder="or paste the whole response here" aria-label="Pasted transcript" spellcheck="false"></textarea>
       </div>
+      <p class="name" style="margin:12px 0 4px"><b>Step 3. Paste the transcript JSON from ElevenLabs</b></p>
+      <p class="muted" style="margin:0 0 6px">In the ElevenLabs Response tab, copy the whole response (from the first <code>{</code> to the last <code>}</code>), then touch and hold in the box below and choose Paste.</p>
+      <textarea id="pasteBox" class="kt big" placeholder="Paste the transcript JSON here" aria-label="Pasted transcript JSON" spellcheck="false" autocomplete="off"></textarea>
+      <div class="row"><span id="pasteMsg" class="muted" role="status"></span><button class="btn small" id="pasteClear" hidden>Clear</button></div>
+      <details style="margin-top:6px"><summary class="muted">Or choose a saved .json (or .txt) file instead</summary>
+        <div class="pick"><label class="drop" for="jsonFile"><span class="muted" id="jsonInfo">the .json file</span><input type="file" id="jsonFile"></label></div>
+      </details>
       <div class="row">
         <input class="field" id="recName" placeholder="A name for this recording, for example Interview 2" aria-label="Recording name" autocomplete="off">
         <label class="chk"><input type="checkbox" id="keepMedia" checked> Keep the audio on this device</label>
@@ -767,7 +772,22 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
       });
     });
   }
-  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || $("pasteBox").value.trim().length > 20)); }
+  var pasteOk = false, pasteTimer = 0, pastedText = "";
+  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || pasteOk)); }
+  function checkPaste() {                      // says at once whether what was pasted is a usable transcript
+    var text = (pastedText || $("pasteBox").value).trim(), msg = $("pasteMsg");
+    pasteOk = false; $("pasteClear").hidden = !text;
+    if (text.length < 20) { msg.textContent = ""; msg.className = "muted"; ready(); return; }
+    var reply;
+    try { reply = JSON.parse(text); } catch (e) { msg.textContent = "This is not complete JSON yet. Copy the whole response, from the first { to the last }."; msg.className = "bad"; ready(); return; }
+    if (!reply.words || !reply.words.length) { msg.textContent = "No word list found. Run the request again with timestamps_granularity set to word."; msg.className = "bad"; ready(); return; }
+    var sp = {}, last = 0;
+    reply.words.forEach(function (w) { if (w.speaker_id) sp[w.speaker_id] = 1; if (w.end > last) last = w.end; });
+    var n = Object.keys(sp).length;
+    pasteOk = true; msg.className = "good";
+    msg.textContent = "Looks right: " + reply.words.filter(function (w) { return w.type === "word"; }).length.toLocaleString() + " words, " + Math.round((reply.audio_duration_secs || last) / 60) + " minutes, " + (n ? n + " speaker" + (n === 1 ? "" : "s") : "no speaker labels (set diarize to true)") + ".";
+    ready();
+  }
   $("mediaFile").addEventListener("change", function (e) {
     mediaFile = e.target.files[0] || null;
     $("mediaInfo").textContent = mediaFile ? mediaFile.name + " (" + (mediaFile.size / 1e6).toFixed(1) + " MB)" : "mp4, mp3, m4a, wav, ...";
@@ -777,10 +797,30 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
   });
   $("jsonFile").addEventListener("change", function (e) {
     jsonFile = e.target.files[0] || null;
-    $("jsonInfo").textContent = jsonFile ? jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)" : "the .json file (a .txt copy works too)";
+    $("jsonInfo").textContent = jsonFile ? jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)" : "the .json file";
     $("jsonInfo").className = jsonFile ? "got" : "muted"; ready();
   });
-  $("pasteBox").addEventListener("input", ready);
+  function takePasted(text) {                  // a whole response is 150,000 lines: keep it out of the box so the page stays fast
+    pastedText = text;
+    $("pasteBox").value = "(Pasted " + (text.length / 1e6).toFixed(1) + " MB of text. It is kept out of this box so the page stays fast. Press Clear to remove it.)";
+    checkPaste();
+  }
+  $("pasteBox").addEventListener("paste", function (e) {
+    var t = (e.clipboardData || window.clipboardData || { getData: function () { return ""; } }).getData("text");
+    if (t && t.length > 5000) { e.preventDefault(); takePasted(t); }
+  });
+  $("pasteBox").addEventListener("input", function () {
+    var v = $("pasteBox").value;
+    if (v.length > 5000) { takePasted(v); return; }                  // large text that arrived another way
+    if (pastedText && v.indexOf("(Pasted ") !== 0) pastedText = "";   // the person typed over it
+    clearTimeout(pasteTimer); pasteTimer = setTimeout(checkPaste, 350);
+  });
+  $("pasteClear").onclick = function () { pastedText = ""; $("pasteBox").value = ""; checkPaste(); };
+  function resetAddForm() {                    // after a recording is opened, the next one starts empty
+    mediaFile = null; jsonFile = null; pastedText = ""; $("pasteBox").value = ""; $("mediaFile").value = ""; $("jsonFile").value = ""; $("recName").value = "";
+    $("mediaInfo").textContent = "mp4, mp3, m4a, wav, ..."; $("mediaInfo").className = "muted"; $("jsonInfo").textContent = "the .json file"; $("jsonInfo").className = "muted";
+    $("loadMsg").textContent = ""; checkPaste();
+  }
 
   $("startBtn").addEventListener("click", function () {
     $("loadMsg").textContent = "";
@@ -802,7 +842,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
       reader.onerror = function () { $("loadMsg").textContent = "Could not read the transcript file."; };
       reader.onload = function () { go(reader.result); };
       reader.readAsText(jsonFile);
-    } else go($("pasteBox").value.trim());
+    } else go((pastedText || $("pasteBox").value).trim());
   });
 
   function migrate(old) {      // edits made before speaker lines existed: label each paragraph if the count matches
@@ -833,6 +873,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
     S.mediaUrl = URL.createObjectURL(media);
     video.src = S.mediaUrl;
     $("xName").value = rec.name;
+    resetAddForm();
     $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
     buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
     if (!saved) { $("tSpk").click(); $("spkMsg").textContent = "Guessed from who asks the questions. Check the first lines and change it if it is wrong."; }       // a new recording: confirm who is who first

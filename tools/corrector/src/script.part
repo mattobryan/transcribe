@@ -382,7 +382,22 @@
       });
     });
   }
-  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || $("pasteBox").value.trim().length > 20)); }
+  var pasteOk = false, pasteTimer = 0, pastedText = "";
+  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || pasteOk)); }
+  function checkPaste() {                      // says at once whether what was pasted is a usable transcript
+    var text = (pastedText || $("pasteBox").value).trim(), msg = $("pasteMsg");
+    pasteOk = false; $("pasteClear").hidden = !text;
+    if (text.length < 20) { msg.textContent = ""; msg.className = "muted"; ready(); return; }
+    var reply;
+    try { reply = JSON.parse(text); } catch (e) { msg.textContent = "This is not complete JSON yet. Copy the whole response, from the first { to the last }."; msg.className = "bad"; ready(); return; }
+    if (!reply.words || !reply.words.length) { msg.textContent = "No word list found. Run the request again with timestamps_granularity set to word."; msg.className = "bad"; ready(); return; }
+    var sp = {}, last = 0;
+    reply.words.forEach(function (w) { if (w.speaker_id) sp[w.speaker_id] = 1; if (w.end > last) last = w.end; });
+    var n = Object.keys(sp).length;
+    pasteOk = true; msg.className = "good";
+    msg.textContent = "Looks right: " + reply.words.filter(function (w) { return w.type === "word"; }).length.toLocaleString() + " words, " + Math.round((reply.audio_duration_secs || last) / 60) + " minutes, " + (n ? n + " speaker" + (n === 1 ? "" : "s") : "no speaker labels (set diarize to true)") + ".";
+    ready();
+  }
   $("mediaFile").addEventListener("change", function (e) {
     mediaFile = e.target.files[0] || null;
     $("mediaInfo").textContent = mediaFile ? mediaFile.name + " (" + (mediaFile.size / 1e6).toFixed(1) + " MB)" : "mp4, mp3, m4a, wav, ...";
@@ -392,10 +407,30 @@
   });
   $("jsonFile").addEventListener("change", function (e) {
     jsonFile = e.target.files[0] || null;
-    $("jsonInfo").textContent = jsonFile ? jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)" : "the .json file (a .txt copy works too)";
+    $("jsonInfo").textContent = jsonFile ? jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)" : "the .json file";
     $("jsonInfo").className = jsonFile ? "got" : "muted"; ready();
   });
-  $("pasteBox").addEventListener("input", ready);
+  function takePasted(text) {                  // a whole response is 150,000 lines: keep it out of the box so the page stays fast
+    pastedText = text;
+    $("pasteBox").value = "(Pasted " + (text.length / 1e6).toFixed(1) + " MB of text. It is kept out of this box so the page stays fast. Press Clear to remove it.)";
+    checkPaste();
+  }
+  $("pasteBox").addEventListener("paste", function (e) {
+    var t = (e.clipboardData || window.clipboardData || { getData: function () { return ""; } }).getData("text");
+    if (t && t.length > 5000) { e.preventDefault(); takePasted(t); }
+  });
+  $("pasteBox").addEventListener("input", function () {
+    var v = $("pasteBox").value;
+    if (v.length > 5000) { takePasted(v); return; }                  // large text that arrived another way
+    if (pastedText && v.indexOf("(Pasted ") !== 0) pastedText = "";   // the person typed over it
+    clearTimeout(pasteTimer); pasteTimer = setTimeout(checkPaste, 350);
+  });
+  $("pasteClear").onclick = function () { pastedText = ""; $("pasteBox").value = ""; checkPaste(); };
+  function resetAddForm() {                    // after a recording is opened, the next one starts empty
+    mediaFile = null; jsonFile = null; pastedText = ""; $("pasteBox").value = ""; $("mediaFile").value = ""; $("jsonFile").value = ""; $("recName").value = "";
+    $("mediaInfo").textContent = "mp4, mp3, m4a, wav, ..."; $("mediaInfo").className = "muted"; $("jsonInfo").textContent = "the .json file"; $("jsonInfo").className = "muted";
+    $("loadMsg").textContent = ""; checkPaste();
+  }
 
   $("startBtn").addEventListener("click", function () {
     $("loadMsg").textContent = "";
@@ -417,7 +452,7 @@
       reader.onerror = function () { $("loadMsg").textContent = "Could not read the transcript file."; };
       reader.onload = function () { go(reader.result); };
       reader.readAsText(jsonFile);
-    } else go($("pasteBox").value.trim());
+    } else go((pastedText || $("pasteBox").value).trim());
   });
 
   function migrate(old) {      // edits made before speaker lines existed: label each paragraph if the count matches
@@ -448,6 +483,7 @@
     S.mediaUrl = URL.createObjectURL(media);
     video.src = S.mediaUrl;
     $("xName").value = rec.name;
+    resetAddForm();
     $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
     buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
     if (!saved) { $("tSpk").click(); $("spkMsg").textContent = "Guessed from who asks the questions. Check the first lines and change it if it is wrong."; }       // a new recording: confirm who is who first

@@ -66,6 +66,15 @@ with sync_playwright() as p:
     head = csv.split("\n")[0]
     check("language labels file has the columns", head == "recording,chunk,start,end,speaker,token,language,parts,source", head)
     check("labels include Swahili, English and your list", ",sw," in csv and ",en," in csv and "your list" in csv)
+    # paste the transcript instead of choosing a file
+    pg.click("#tHome"); pg.wait_for_selector("#setup:not([hidden])")
+    pg.set_input_files("#mediaFile", wav); pg.fill("#pasteBox", '{"words": [{"text": "Habari", "start"'); pg.wait_for_timeout(700)
+    check("incomplete paste is explained", "not complete JSON" in pg.inner_text("#pasteMsg") and pg.is_disabled("#startBtn"))
+    pg.evaluate("""t => { const dt = new DataTransfer(); dt.setData('text', t); document.getElementById('pasteBox').dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); }""", open(TRANSCRIPT, encoding="utf-8").read()); pg.wait_for_timeout(1500)
+    check("a big paste stays out of the box", len(pg.input_value("#pasteBox")) < 300, len(pg.input_value("#pasteBox")))
+    check("a good paste is recognised", pg.inner_text("#pasteMsg").startswith("Looks right") and not pg.is_disabled("#startBtn"), pg.inner_text("#pasteMsg"))
+    pg.click("#startBtn"); pg.wait_for_selector("#work:not([hidden])")
+    check("opens from the pasted text", pg.locator("#prose .seg").count() > 100)
     check("no page errors", not errs, errs)
     b.close()
 print("\n%d failure(s)" % len(failures)); sys.exit(1 if failures else 0)
