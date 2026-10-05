@@ -7,6 +7,9 @@
   var SW = new Set("__SW__ ku".split(" "));
   var EN = new Set("__EN__".split(" "));
   var AMB = new Set(["ya", "wa", "la", "ma", "ha", "ba"]);   // Swahili or English depending on the words around
+  var LEX = { words: {}, splits: {} };                         // your answers: word -> sw / en / name, and word -> its parts; kept for every recording
+  try { var rawLex = localStorage.getItem("corrector-lexicon"); if (rawLex) { var pl = JSON.parse(rawLex); LEX.words = pl.words || {}; LEX.splits = pl.splits || {}; } } catch (e) { /* no saved list */ }
+  function saveLex() { try { localStorage.setItem("corrector-lexicon", JSON.stringify(LEX)); } catch (e) { /* not saved */ } }
   var SUBJ = "ni|u|a|tu|m|mu|wa|i|zi|li|ya|ki|vi|pa|ku", TENSE = "na|li|ta|me|ki|ka|hu|nge|ngali|sha|ja", OBJ = "ni|ku|mw|m|tu|wa|i|zi|li|ya|ki|vi|pa";
   var PRE_OBJ = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")(?:" + OBJ + ")");
   var PRE = new RegExp("^(?:ha|si)?(?:" + SUBJ + ")(?:" + TENSE + ")");
@@ -15,10 +18,16 @@
   // One word -> [[text, "sw" | "en" | "amb"], ...]. A mixed word such as "tunacheck" gives its Swahili part and its English part.
   function classifyWord(orig, sentenceStart) {
     var low = orig.toLowerCase();
+    var rule = LEX.splits[low];
+    if (rule && rule.map(function (p) { return p[0]; }).join("") === low) {         // a split you set, for example "ana" Swahili + "feel" English
+      var at = 0;
+      return rule.map(function (p) { var t = orig.slice(at, at + p[0].length); at += p[0].length; return [t, p[1]]; });
+    }
+    if (LEX.words[low]) return [[orig, LEX.words[low]]];
     if (AMB.has(low)) return [[orig, "amb"]];
     if (SW.has(low)) return [[orig, "sw"]];
     var capital = orig.charAt(0) !== low.charAt(0);
-    if (capital && !sentenceStart) return [[orig, "en"]];                 // a name
+    if (capital && !sentenceStart) return [[orig, "name"]];               // a name
     if (EN.has(low)) return [[orig, "en"]];
     if (orig.indexOf("-") > 0) {
       var parts = orig.split("-"), segs = [];
@@ -306,7 +315,7 @@
         req.onsuccess = function () {
           try {
             var tx = req.result.transaction("kv", op === "get" ? "readonly" : "readwrite"), st = tx.objectStore("kv");
-            var r = op === "get" ? st.get(key) : st.put(val, key);
+            var r = op === "get" ? st.get(key) : op === "del" ? st.delete(key) : st.put(val, key);
             r.onsuccess = function () { resolve(op === "get" ? r.result : true); };
             r.onerror = function () { resolve(null); };
           } catch (e) { resolve(null); }
@@ -315,35 +324,100 @@
     });
   }
 
-  /* ---------- opening files ---------- */
-  var mediaFile = null, jsonFile = null, savedReply = null;
-  idb("get", "transcript").then(function (v) {
-    if (v && v.text) { savedReply = v; $("jsonInfo").textContent = "Saved from last time: " + v.name + ". Choose a file here only to replace it."; $("jsonInfo").className = "got"; ready(); }
+  /* ---------- recordings: each one keeps its transcript, your edits and (if you allow it) the audio on this device ---------- */
+  var LIB = [], mediaFile = null, jsonFile = null;
+  function idForReply(reply, chunks) { return reply.transcription_id || (chunks.length + ":" + (chunks[0] && chunks[0].rawRuns[0] ? chunks[0].rawRuns[0].text.slice(0, 30) : "")); }
+  function progressOf(rec) {
+    try { var raw = localStorage.getItem("corrector2:" + rec.id); if (!raw) return 0; var d = JSON.parse(raw).done || {}, n = 0; for (var k in d) { if (d[k]) n += 1; } return n; } catch (e) { return 0; }
+  }
+  function libSave() { return idb("set", "recs", LIB); }
+  idb("get", "recs").then(function (v) {
+    LIB = Array.isArray(v) ? v : [];
+    return idb("get", "transcript");                      // the one transcript that earlier versions kept
+  }).then(function (old) {
+    if (old && old.text) {
+      try {
+        var rep0 = JSON.parse(old.text), ch0 = buildChunks(rep0), id0 = idForReply(rep0, ch0);
+        if (!LIB.some(function (r) { return r.id === id0; })) {
+          LIB.push({ id: id0, name: "Interview 1", chunks: ch0.length, added: Date.now(), hasMedia: false });
+          idb("set", "rec:" + id0, old.text); libSave();
+        }
+      } catch (e) { /* not a transcript */ }
+    }
+    renderLib();
   });
+  function renderLib() {
+    var box = $("recList"); box.innerHTML = "";
+    if (!LIB.length) { var p0 = document.createElement("p"); p0.className = "muted"; p0.textContent = "No recordings yet. Add the first one below."; box.appendChild(p0); return; }
+    LIB.forEach(function (rec) {
+      var card = document.createElement("div"); card.className = "rec";
+      var done = progressOf(rec), name = document.createElement("div"), info = document.createElement("div"), btns = document.createElement("div"), bar = document.createElement("div");
+      name.className = "rname"; name.textContent = rec.name;
+      info.className = "muted"; info.textContent = done + " of " + (rec.chunks || "?") + " chunks checked" + (rec.hasMedia ? " · audio kept on this device" : " · choose the audio to continue");
+      bar.className = "rbar"; var fill = document.createElement("div"); fill.style.width = (rec.chunks ? Math.min(100, 100 * done / rec.chunks) : 0) + "%"; bar.appendChild(fill);
+      btns.className = "row";
+      if (rec.hasMedia) {
+        var go = document.createElement("button"); go.className = "btn small primary"; go.textContent = "Continue"; go.onclick = function () { openSaved(rec, null); }; btns.appendChild(go);
+      } else {
+        var lab = document.createElement("label"); lab.className = "btn small primary"; lab.textContent = "Choose the audio and continue";
+        var inp = document.createElement("input"); inp.type = "file"; inp.accept = "video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm"; inp.hidden = true;
+        inp.onchange = function () { if (inp.files[0]) openSaved(rec, inp.files[0]); };
+        lab.appendChild(inp); btns.appendChild(lab);
+      }
+      var rm = document.createElement("button"); rm.className = "btn small"; rm.textContent = "Remove from this list"; rm.dataset.armed = "";
+      rm.onclick = function () {
+        if (!rm.dataset.armed) { rm.dataset.armed = "1"; rm.textContent = "Tap again to remove"; return; }
+        LIB = LIB.filter(function (r) { return r.id !== rec.id; }); idb("del", "rec:" + rec.id); idb("del", "media:" + rec.id); libSave(); renderLib();
+      };
+      btns.appendChild(rm);
+      card.appendChild(name); card.appendChild(info); card.appendChild(bar); card.appendChild(btns); box.appendChild(card);
+    });
+  }
+  function openSaved(rec, file) {
+    idb("get", "rec:" + rec.id).then(function (text) {
+      if (!text) { $("loadMsg").textContent = "The saved transcript for " + rec.name + " is gone from this browser. Add it again below."; return null; }
+      return (file ? Promise.resolve(file) : idb("get", "media:" + rec.id)).then(function (media) {
+        if (!media) { rec.hasMedia = false; libSave(); renderLib(); $("loadMsg").textContent = "The saved audio is gone. Choose it again."; return; }
+        open(JSON.parse(text), rec, media);
+      });
+    });
+  }
+  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || $("pasteBox").value.trim().length > 20)); }
   $("mediaFile").addEventListener("change", function (e) {
     mediaFile = e.target.files[0] || null;
     $("mediaInfo").textContent = mediaFile ? mediaFile.name + " (" + (mediaFile.size / 1e6).toFixed(1) + " MB)" : "mp4, mp3, m4a, wav, ...";
-    $("mediaInfo").className = mediaFile ? "got" : "muted"; ready();
+    $("mediaInfo").className = mediaFile ? "got" : "muted";
+    if (mediaFile && !$("recName").value) $("recName").value = mediaFile.name.replace(/\.[^.]+$/, "");
+    ready();
   });
   $("jsonFile").addEventListener("change", function (e) {
     jsonFile = e.target.files[0] || null;
-    if (jsonFile) { $("jsonInfo").textContent = jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)"; $("jsonInfo").className = "got"; }
-    ready();
+    $("jsonInfo").textContent = jsonFile ? jsonFile.name + " (" + (jsonFile.size / 1e6).toFixed(1) + " MB)" : "the .json file (a .txt copy works too)";
+    $("jsonInfo").className = jsonFile ? "got" : "muted"; ready();
   });
-  function ready() { $("startBtn").disabled = !(mediaFile && (jsonFile || savedReply)); }
+  $("pasteBox").addEventListener("input", ready);
 
   $("startBtn").addEventListener("click", function () {
     $("loadMsg").textContent = "";
-    if (!jsonFile) { open(JSON.parse(savedReply.text), savedReply.name, savedReply.text); return; }
-    var reader = new FileReader();
-    reader.onerror = function () { $("loadMsg").textContent = "Could not read the transcript file."; };
-    reader.onload = function () {
+    function go(text) {
       var reply;
-      try { reply = JSON.parse(reader.result); } catch (e) { $("loadMsg").textContent = "This file is not a transcript JSON. Choose the file you copied from the ElevenLabs response."; return; }
-      if (!reply.words || !reply.words.length) { $("loadMsg").textContent = "This transcript has no word list. Run it again with timestamps set to word."; return; }
-      open(reply, jsonFile.name, reader.result);
-    };
-    reader.readAsText(jsonFile);
+      try { reply = JSON.parse(text); } catch (e) { $("loadMsg").textContent = "That is not a transcript JSON. Copy the whole response from ElevenLabs, from the first { to the last }."; return; }
+      if (!reply.words || !reply.words.length) { $("loadMsg").textContent = "This transcript has no word list. Run it again with timestamps_granularity set to word."; return; }
+      var ch = buildChunks(reply), id = idForReply(reply, ch);
+      var rec = { id: id, name: $("recName").value.trim() || mediaFile.name.replace(/\.[^.]+$/, ""), chunks: ch.length, added: Date.now(), hasMedia: false };
+      var keep = $("keepMedia").checked && mediaFile.size < 400e6;
+      idb("set", "rec:" + id, text).then(function () { return keep ? idb("set", "media:" + id, mediaFile) : null; }).then(function (ok) {
+        rec.hasMedia = !!(keep && ok);
+        LIB = LIB.filter(function (r) { return r.id !== id; }).concat([rec]); libSave();
+        open(reply, rec, mediaFile);
+      });
+    }
+    if (jsonFile) {
+      var reader = new FileReader();
+      reader.onerror = function () { $("loadMsg").textContent = "Could not read the transcript file."; };
+      reader.onload = function () { go(reader.result); };
+      reader.readAsText(jsonFile);
+    } else go($("pasteBox").value.trim());
   });
 
   function migrate(old) {      // edits made before speaker lines existed: label each paragraph if the count matches
@@ -357,10 +431,10 @@
     return edits;
   }
 
-  function open(reply, name, rawText) {
-    S.chunks = buildChunks(reply); S.shown = false;
+  function open(reply, rec, media) {
+    S.rec = rec; S.chunks = buildChunks(reply); S.shown = false; S.idx = 0; proseNow = -1;
     S.speakers = S.chunks.speakerOrder || [];
-    var id = reply.transcription_id || (S.chunks.length + ":" + (S.chunks[0] && S.chunks[0].rawRuns[0] ? S.chunks[0].rawRuns[0].text.slice(0, 30) : ""));
+    var id = idForReply(reply, S.chunks);
     S.key = "corrector2:" + id;
     S.interviewer = S.speakers[0] || null;
     var saved = store("get");
@@ -370,11 +444,10 @@
       S.edits = old ? migrate(old) : {}; S.done = old ? (old.done || {}) : {}; S.reviewWords = REVIEW_DEFAULT.slice();
     }
     persist();
-    idb("set", "transcript", { name: name, text: rawText });
     if (S.mediaUrl) URL.revokeObjectURL(S.mediaUrl);
-    S.mediaUrl = URL.createObjectURL(mediaFile);
+    S.mediaUrl = URL.createObjectURL(media);
     video.src = S.mediaUrl;
-    if (!$("xName").value) $("xName").value = mediaFile.name.replace(/\.[^.]+$/, "");
+    $("xName").value = rec.name;
     $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
     buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
     var first = 0;
@@ -382,6 +455,21 @@
     select(first, false);
     updateProgress();
   }
+  function showSetup() {                       // back to the list of recordings
+    stash(); video.pause();
+    $("work").hidden = true; $("panels").hidden = true; $("progress").hidden = true; $("tools").hidden = true; $("setup").hidden = false;
+    renderLib();
+  }
+  $("tHome").onclick = showSetup;
+
+  /* ---------- ElevenLabs settings box on the first screen ---------- */
+  var KEYTERMS_DEFAULT = "postnatal\nantenatal\nward\nhandover\nlocum\nKRCHN\nclinician\nCS mothers\nSVD\ntheatre\nNHIF\nSHA\nKenyatta";
+  try { $("elKeyterms").value = localStorage.getItem("corrector-keyterms") || KEYTERMS_DEFAULT; } catch (e) { $("elKeyterms").value = KEYTERMS_DEFAULT; }
+  $("elKeyterms").addEventListener("input", function () { try { localStorage.setItem("corrector-keyterms", $("elKeyterms").value); } catch (e) { /* not saved */ } });
+  $("elCopy").onclick = function () {
+    var t = $("elKeyterms").value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean).join("\n"), done = function () { toast("Copied the key terms"); };
+    try { navigator.clipboard.writeText(t).then(done, function () { $("elKeyterms").select(); }); } catch (e) { $("elKeyterms").select(); }
+  };
 
   /* ---------- the script: the whole interview as one flowing text, like oTranscribe ---------- */
   var proseTimer = 0, proseNow = -1, userScrollUntil = 0;
@@ -717,12 +805,12 @@
   $("tTheme").onclick = function () { applySkin(SKINS[(SKINS.indexOf(document.documentElement.getAttribute("data-skin")) + 1) % SKINS.length]); };
 
   /* ---------- tool panels ---------- */
-  var PANELS = { tFix: "pFix", tRev: "pRev", tSpk: "pSpk", tOut: "pOut" };
+  var PANELS = { tLang: "pLang", tFix: "pFix", tRev: "pRev", tSpk: "pSpk", tOut: "pOut" };
   Object.keys(PANELS).forEach(function (btn) {
     $(btn).addEventListener("click", function () {
       var show = $(PANELS[btn]).hidden;
       Object.keys(PANELS).forEach(function (b) { $(PANELS[b]).hidden = true; $(b).setAttribute("aria-pressed", "false"); });
-      if (show) { $(PANELS[btn]).hidden = false; $(btn).setAttribute("aria-pressed", "true"); if (btn === "tOut") showRich(); }
+      if (show) { $(PANELS[btn]).hidden = false; $(btn).setAttribute("aria-pressed", "true"); if (btn === "tOut") showRich(); if (btn === "tLang") renderLang(); }
     });
   });
 
@@ -892,7 +980,110 @@
   }
   var downloadsCap = null;
   if (window.claude && window.claude.use) {
-    window.claude.use("downloads").then(function (d) { downloadsCap = d; $("xDocx").hidden = !d; $("xLog").hidden = !d; $("xCsv").hidden = !d; $("xNoSave").hidden = !!d; }, function () { /* no saving here */ });
+    window.claude.use("downloads").then(function (d) { downloadsCap = d; $("xDocx").hidden = !d; $("xLog").hidden = !d; $("xCsv").hidden = !d; $("xLang").hidden = !d; $("xNoSave").hidden = !!d; }, function () { /* no saving here */ });
+  }
+
+
+  /* ---------- languages: which words are Swahili, English, a name, or a mix (this is the data the model learns from) ---------- */
+  function vocabulary() {
+    var seen = {};
+    S.chunks.forEach(function (c, i) {
+      parseLines(stripMarks(textOf(i))).forEach(function (l) {
+        tokenize(l.text).forEach(function (it) {
+          if (!it.segs.length) return;
+          var word = it.segs.map(function (sg) { return sg[0]; }).join(""), low = word.toLowerCase();
+          if (!/\p{L}/u.test(word)) return;
+          var anySw = it.segs.some(function (sg) { return sg[1] === "sw"; }), allSw = it.segs.every(function (sg) { return sg[1] === "sw"; });
+          var cls = it.segs.length > 1 && anySw && !allSw ? "mixed" : allSw ? "sw" : "other";
+          var r = seen[low] || (seen[low] = { word: word, low: low, n: 0, chunk: i + 1, cls: cls, parts: it.segs, name: it.segs[0][1] === "name" });
+          r.n += 1;
+        });
+      });
+    });
+    var out = { mixed: [], unsure: [], sw: [] };
+    Object.keys(seen).forEach(function (k) {
+      var r = seen[k];
+      if (r.cls === "mixed") out.mixed.push(r);
+      else if (r.cls === "sw") out.sw.push(r);
+      else if (!r.name && !EN.has(r.low) && !LEX.words[r.low] && r.low.length > 2) out.unsure.push(r);
+    });
+    return out;
+  }
+  function markerOf(parts) { return parts.map(function (sg) { return sg[1] === "sw" ? "_" + sg[0] + "_" : sg[0]; }).join(""); }
+  function parseSplit(str, low) {              // "_ana_feel" -> [["ana","sw"],["feel","en"]]; the parts must spell the word
+    var re = new RegExp(MARK_SRC, "gu"), out = [], last = 0, m;
+    while ((m = re.exec(str))) {
+      if (m.index > last) out.push([str.slice(last, m.index).toLowerCase(), "en"]);
+      out.push([(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]).toLowerCase(), m[2] !== undefined ? "sw" : "en"]);
+      last = m.index + m[0].length;
+    }
+    if (last < str.length) out.push([str.slice(last).toLowerCase(), "en"]);
+    return out.join("") && out.map(function (p) { return p[0]; }).join("") === low ? out : null;
+  }
+  function afterLexChange() { saveLex(); scheduleProse(); showPreview(); renderLang(); }
+  function langRow(r, kind) {
+    var row = document.createElement("div"); row.className = "lrow";
+    var w = document.createElement("span"); w.className = "lw"; w.innerHTML = kind === "mixed" ? bodyHTML(markerOf(r.parts)) : esc(r.word);
+    var n = document.createElement("span"); n.className = "ln muted"; n.textContent = "×" + r.n + " · chunk " + r.chunk;
+    row.appendChild(w); row.appendChild(n);
+    function btn(label, fn) { var b = document.createElement("button"); b.className = "btn small"; b.textContent = label; b.onclick = fn; row.appendChild(b); return b; }
+    if (kind === "mixed") {
+      var inp = document.createElement("input"); inp.className = "field lsplit"; inp.value = markerOf(r.parts); inp.setAttribute("aria-label", "Parts of " + r.word); row.appendChild(inp);
+      btn("Apply", function () {
+        var parts = parseSplit(inp.value.trim(), r.low);
+        if (!parts) { toast("The parts must spell the same word. Put _ _ around the Swahili part."); return; }
+        LEX.splits[r.low] = parts; delete LEX.words[r.low]; afterLexChange();
+      });
+    }
+    [["sw", "Swahili"], ["en", "English"], ["name", "Name"]].forEach(function (pair) {
+      btn(pair[1], function () { LEX.words[r.low] = pair[0]; delete LEX.splits[r.low]; afterLexChange(); });
+    });
+    return row;
+  }
+  function renderLang() {
+    var q = $("lSearch").value.trim().toLowerCase(), v = vocabulary(), body = $("lBody"); body.innerHTML = "";
+    [["Combined words: Swahili and English in one word", "mixed"], ["Not sure what these are", "unsure"], ["Swahili words the page found", "sw"]].forEach(function (g) {
+      var list = v[g[1]].filter(function (r) { return !q || r.low.indexOf(q) >= 0; }).sort(function (a, b) { return b.n - a.n; });
+      var h = document.createElement("h3"); h.textContent = g[0] + " (" + list.length + ")"; body.appendChild(h);
+      if (!list.length) { var e = document.createElement("p"); e.className = "muted"; e.textContent = "None."; body.appendChild(e); }
+      list.slice(0, 120).forEach(function (r) { body.appendChild(langRow(r, g[1])); });
+      if (list.length > 120) { var m = document.createElement("p"); m.className = "muted"; m.textContent = "Showing the 120 most frequent. Search to find others."; body.appendChild(m); }
+    });
+    $("lCount").textContent = Object.keys(LEX.words).length + " words and " + Object.keys(LEX.splits).length + " splits in your list";
+  }
+  $("lSearch").addEventListener("input", renderLang);
+  $("lReset").onclick = function () {
+    var b = $("lReset");
+    if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Tap again to clear my list"; return; }
+    b.dataset.armed = ""; b.textContent = "Clear my list"; LEX.words = {}; LEX.splits = {}; afterLexChange();
+  };
+  function labelRows() {                       // one row per word of the final text, with its language
+    stash();
+    var rows = [];
+    S.chunks.forEach(function (c, i) {
+      parseLines(textOf(i)).forEach(function (l) {
+        l.text.split(/\s+/).filter(Boolean).forEach(function (tok) {
+          var parts = [], re = new RegExp(MARK_SRC, "gu"), last = 0, m, marked = false;
+          function auto(t) { if (t) tokenize(t).forEach(function (it) { it.segs.forEach(function (sg) { parts.push({ t: sg[0], lang: sg[1], src: "auto" }); }); }); }
+          while ((m = re.exec(tok))) {
+            auto(tok.slice(last, m.index));
+            if (m[1] !== undefined) auto(m[1]);
+            else if (m[2] !== undefined) { parts.push({ t: m[2], lang: "sw", src: "mark" }); marked = true; }
+            else { parts.push({ t: m[3], lang: "en", src: "mark" }); marked = true; }
+            last = m.index + m[0].length;
+          }
+          auto(tok.slice(last));
+          parts = parts.filter(function (p) { return /[\p{L}\p{N}]/u.test(p.t); });
+          if (!parts.length) return;
+          var langs = []; parts.forEach(function (p) { if (langs.indexOf(p.lang) < 0) langs.push(p.lang); });
+          var word = parts.map(function (p) { return p.t; }).join(""), low = word.toLowerCase();
+          rows.push({ chunk: i + 1, start: c.start, end: c.end, speaker: l.label.charAt(0), token: word, language: langs.length > 1 ? "mixed" : langs[0],
+            parts: langs.length > 1 ? parts.map(function (p) { return p.t + ":" + p.lang; }).join("|") : "",
+            source: marked ? "your mark" : (LEX.words[low] || LEX.splits[low]) ? "your list" : "automatic" });
+        });
+      });
+    });
+    return rows;
   }
 
   /* ---------- the corrections log: what Scribe wrote, what the cleaning did, what you changed (for the main project) ---------- */
@@ -947,7 +1138,8 @@
     });
     var list = Object.keys(changes).map(function (k) { return changes[k]; }).sort(function (a, b) { return b.count - a.count; });
     return {
-      format: "kenyan-transcript-corrections/1", file: $("xName").value.trim() || "Transcript", saved_at: new Date().toISOString(),
+      format: "kenyan-transcript-corrections/1", file: $("xName").value.trim() || "Transcript", recording: S.rec ? { id: S.rec.id, name: S.rec.name } : null, saved_at: new Date().toISOString(),
+      language_labels: (function () { var t = { sw: 0, en: 0, name: 0, mixed: 0 }; labelRows().forEach(function (r) { t[r.language] = (t[r.language] || 0) + 1; }); return t; })(),
       source: "ElevenLabs Scribe, " + (S.chunks.length ? "transcription id " + (S.key.split(":")[1] || "") : ""),
       note: "scribe_raw is the first transcript. after_automatic_clean_up is what this page showed. final is what a person corrected it to. Marks in final: **bold**, _italic_ = Swahili, ~plain~ = not Swahili.",
       totals: { chunks: S.chunks.length, checked: nChecked, changed_by_person: nChanged, distinct_word_changes: list.length,
@@ -965,6 +1157,14 @@
   $("xLog").addEventListener("click", function () {
     var log = buildLog(), name = ($("xName").value.trim() || "Transcript").replace(/[\\/:*?"<>|]+/g, "-");
     saveFile(name + " corrections log.json", JSON.stringify(log, null, 1), "Saved the corrections log: " + log.totals.changed_by_person + " chunks changed by a person, " + log.totals.distinct_word_changes + " different word changes.");
+  });
+  $("xLang").addEventListener("click", function () {
+    var rows = labelRows(), name = ($("xName").value.trim() || "Transcript").replace(/[\\/:*?"<>|]+/g, "-"), rec = (S.rec ? S.rec.name : name).replace(/"/g, "");
+    var out = ["recording,chunk,start,end,speaker,token,language,parts,source"].concat(rows.map(function (r) {
+      return [csvCell(rec), r.chunk, r.start.toFixed(2), r.end.toFixed(2), r.speaker, csvCell(r.token), r.language, csvCell(r.parts), r.source].join(",");
+    }));
+    var t = { sw: 0, en: 0, name: 0, mixed: 0 }; rows.forEach(function (r) { t[r.language] = (t[r.language] || 0) + 1; });
+    saveFile(name + " language labels.csv", out.join("\n") + "\n", "Saved " + rows.length + " labelled words: " + t.sw + " Swahili, " + t.en + " English, " + t.mixed + " combined, " + t.name + " names.");
   });
   $("xCsv").addEventListener("click", function () {
     var log = buildLog(), name = ($("xName").value.trim() || "Transcript").replace(/[\\/:*?"<>|]+/g, "-");

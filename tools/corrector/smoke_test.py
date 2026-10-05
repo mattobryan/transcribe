@@ -51,6 +51,21 @@ with sync_playwright() as p:
     check("docx is Times New Roman 12 and keeps bold/italic", "Times New Roman" in doc and '<w:sz w:val="24"/>' in doc and "<w:i/>" in doc and "<w:b/>" in doc)
     pg.click("#xLog"); pg.wait_for_timeout(300); log = json.loads(pg.evaluate("window.__text"))
     check("corrections log lists the mixed word", any(m["written"] == "_ni_break" or m["written"].startswith("_ni_") for m in log["mixed_words"]), log["mixed_words"])
+    # recordings list, language list and language labels
+    pg.click("#tHome"); pg.wait_for_selector("#setup:not([hidden])")
+    check("recording appears in the list with its audio kept", pg.locator(".rec").count() == 1 and "audio kept" in pg.inner_text(".rec"), pg.inner_text("#recList"))
+    pg.click(".rec button:has-text('Continue')"); pg.wait_for_selector("#work:not([hidden])")
+    check("Continue reopens it from the saved copy", pg.locator("#prose .seg").count() > 100)
+    pg.click("#tLang"); pg.wait_for_timeout(300)
+    check("languages panel lists words", pg.locator("#lBody .lrow").count() > 20, pg.locator("#lBody .lrow").count())
+    unsure = pg.locator("#lBody .lrow:has(button:has-text('Swahili'))").first
+    word = unsure.locator(".lw").inner_text(); unsure.locator("button:has-text('Swahili')").first.click(); pg.wait_for_timeout(300)
+    lex = json.loads(pg.evaluate("localStorage.getItem('corrector-lexicon')"))
+    check("a language answer is kept for every recording", lex["words"].get(word.lower()) == "sw", (word, lex))
+    pg.click("#tOut"); pg.click("#xLang"); pg.wait_for_timeout(500); csv = pg.evaluate("window.__text")
+    head = csv.split("\n")[0]
+    check("language labels file has the columns", head == "recording,chunk,start,end,speaker,token,language,parts,source", head)
+    check("labels include Swahili, English and your list", ",sw," in csv and ",en," in csv and "your list" in csv)
     check("no page errors", not errs, errs)
     b.close()
 print("\n%d failure(s)" % len(failures)); sys.exit(1 if failures else 0)

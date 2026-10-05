@@ -55,7 +55,8 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("audio")
     parser.add_argument("--out", default="results")
-    parser.add_argument("--model", default="scribe_v1", help="scribe_v1 (default) or the newer id shown in your account")
+    parser.add_argument("--model", default="scribe_v2", help="scribe_v2 (default); scribe_v1 if v2 is not offered. Not the medical model.")
+    parser.add_argument("--keyterms", default=None, help="a text file with one word or phrase per line (about $0.05 per hour extra)")
     parser.add_argument("--language", default=None, help="e.g. sw or en; omit to auto-detect")
     parser.add_argument("--no-speakers", action="store_true")
     args = parser.parse_args(argv)
@@ -70,9 +71,13 @@ def main(argv=None) -> None:
             "timestamps_granularity": "word", "tag_audio_events": "false"}
     if args.language:
         data["language_code"] = args.language
+    # the settings used for the Kenyan interviews: diarize true, word timestamps, audio events off, language left empty
+    pairs = list(data.items())
+    if args.keyterms:
+        pairs += [("keyterms", line.strip()) for line in Path(args.keyterms).read_text(encoding="utf-8").splitlines() if line.strip()]
     print(f"Uploading {path.name} ({path.stat().st_size / 1e6:.0f} MB); this takes a few minutes ...", flush=True)
     with path.open("rb") as handle:
-        response = requests.post(URL, headers={"xi-api-key": key}, data=data,
+        response = requests.post(URL, headers={"xi-api-key": key}, data=pairs,
                                  files={"file": (path.name, handle)}, timeout=3600)
     if response.status_code != 200:
         sys.exit(f"ElevenLabs error {response.status_code}: {response.text[:500]}")

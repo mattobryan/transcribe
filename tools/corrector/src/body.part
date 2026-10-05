@@ -7,6 +7,8 @@
     </div>
     <button class="btn small" id="tTheme" title="Change the colours">Warm theme</button>
     <div class="tools" id="tools" hidden>
+      <button class="btn" id="tHome" title="Back to the list of recordings">Recordings</button>
+      <button class="btn" id="tLang" aria-pressed="false">Languages</button>
       <button class="btn" id="tFix" aria-pressed="false">Fix everywhere</button>
       <button class="btn" id="tRev" aria-pressed="false">Flags</button>
       <button class="btn" id="tSpk" aria-pressed="false">Speakers</button>
@@ -14,26 +16,57 @@
     </div>
   </header>
 
-  <section id="setup" aria-label="Open files">
-    <h2>Correct a transcript against its recording</h2>
-    <p class="muted" style="margin:0">Both files stay on this device. Nothing is uploaded. Your corrections and the transcript are kept in this browser, so if the page closes you only need to choose the video again.</p>
-    <div class="pick">
-      <label class="drop" for="mediaFile">
-        <span class="name">1. The video or audio</span>
-        <span class="muted" id="mediaInfo">mp4, mp3, m4a, wav, ...</span>
-        <input type="file" id="mediaFile" accept="video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm">
-      </label>
-      <label class="drop" for="jsonFile">
-        <span class="name">2. The transcript file from ElevenLabs</span>
-        <span class="muted" id="jsonInfo">the .json file (a .txt copy works too)</span>
-        <input type="file" id="jsonFile">
-      </label>
+  <section id="setup" aria-label="Recordings">
+    <h2>Your recordings</h2>
+    <p class="muted" style="margin:0">Nothing is uploaded. Each recording keeps its transcript, your corrections and (if you allow it) its audio in this browser, so you can stop and carry on later.</p>
+    <div id="recList"></div>
+
+    <div class="panel" id="addBox">
+      <h2>Add a recording</h2>
+      <details id="elSettings" open>
+        <summary><b>Step 1. Transcribe it in ElevenLabs with these settings</b></summary>
+        <ol class="steps">
+          <li>elevenlabs.io &rarr; Developers &rarr; Speech to Text API (the playground), POST <code>/v1/speech-to-text</code>.</li>
+          <li><code>model_id</code>: <b>scribe_v2</b> (not the medical one; <code>scribe_v1</code> if v2 is not listed).</li>
+          <li><code>diarize</code>: <b>true</b> &mdash; so the two voices are separated into I: and R:.</li>
+          <li><code>timestamps_granularity</code>: <b>word</b> &mdash; needed for the chunks and the language labels.</li>
+          <li><code>tag_audio_events</code>: <b>false</b> &mdash; no "[laughter]" tags in the text.</li>
+          <li><code>language_code</code>: <b>leave empty</b> &mdash; Swahili and English are mixed, so let it detect.</li>
+          <li>Optional <code>keyterms</code> (about $0.05 per hour extra): words you expect. Edit the list, then add them one by one.</li>
+          <li>Upload the audio, <b>Run request</b>, then copy the whole response.</li>
+        </ol>
+        <textarea id="elKeyterms" class="kt" aria-label="Key terms" spellcheck="false"></textarea>
+        <div class="row"><button class="btn small" id="elCopy">Copy the key terms</button><span class="muted">One word or phrase per line. Add the names and terms of this recording.</span></div>
+      </details>
+      <p class="name" style="margin:12px 0 4px"><b>Step 2. The audio or video</b></p>
+      <div class="pick">
+        <label class="drop" for="mediaFile">
+          <span class="muted" id="mediaInfo">mp4, mp3, m4a, wav, ...</span>
+          <input type="file" id="mediaFile" accept="video/*,audio/*,.mp4,.m4a,.mp3,.wav,.3gp,.mkv,.webm">
+        </label>
+        <p class="name" style="margin:8px 0 0"><b>Step 3. The transcript from ElevenLabs</b></p>
+        <label class="drop" for="jsonFile">
+          <span class="muted" id="jsonInfo">the .json file (a .txt copy works too)</span>
+          <input type="file" id="jsonFile">
+        </label>
+        <textarea id="pasteBox" class="kt" placeholder="or paste the whole response here" aria-label="Pasted transcript" spellcheck="false"></textarea>
+      </div>
+      <div class="row">
+        <input class="field" id="recName" placeholder="A name for this recording, for example Interview 2" aria-label="Recording name" autocomplete="off">
+        <label class="chk"><input type="checkbox" id="keepMedia" checked> Keep the audio on this device</label>
+      </div>
+      <button class="btn primary" id="startBtn" disabled>Add and open</button>
+      <div id="loadMsg" role="status"></div>
     </div>
-    <button class="btn primary" id="startBtn" disabled>Open</button>
-    <div id="loadMsg" role="status"></div>
   </section>
 
   <section id="panels" hidden>
+    <div class="panel" id="pLang" hidden>
+      <h2>Languages: Swahili, English, names and combined words</h2>
+      <p class="muted" style="margin:0 0 8px">Tell the page what each word is. Your answers apply to every recording, change the italics straight away, and are written into the language labels file, which is the data the model learns from. For a combined word, put <code>_ _</code> around the Swahili part: <code>_ana_feel</code>.</p>
+      <div class="row"><input class="field" id="lSearch" placeholder="Search a word" aria-label="Search a word"><button class="btn small" id="lReset">Clear my list</button><span class="muted" id="lCount"></span></div>
+      <div id="lBody"></div>
+    </div>
     <div class="panel" id="pFix" hidden>
       <h2>Fix everywhere</h2>
       <div class="row">
@@ -84,6 +117,7 @@
       </div>
       <div class="row">
         <button class="btn small" id="xLog" hidden title="Everything Scribe wrote, what the automatic clean-up did, and what you changed">Download corrections log (.json)</button>
+        <button class="btn small" id="xLang" hidden title="Every word with its language: Swahili, English, name or combined">Download language labels (.csv)</button>
         <button class="btn small" id="xCsv" hidden title="Every word you changed, with how many times">Download word changes (.csv)</button>
       </div>
       <div class="row">

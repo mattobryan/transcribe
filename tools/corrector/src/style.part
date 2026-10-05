@@ -172,3 +172,19 @@ textarea#text { min-height: 8.5em; flex: 0 0 auto; }
 .btn.fmt { min-width: 44px; padding: 4px 10px; font-family: var(--font-text); }
 .btn.fmt[id="mPlain"], .btn.fmt[id="mClear"] { font-family: var(--font-ui); font-size: .85rem; }
 code { font-family: var(--font-mono); font-size: .85em; background: var(--tint); padding: 0 4px; border-radius: 3px; }
+
+.rec { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.rec + .rec { margin-top: 8px; }
+.rname { font-weight: 600; }
+.rbar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.rbar div { height: 100%; background: var(--ok); }
+label.btn { display: inline-flex; align-items: center; }
+.steps { margin: 8px 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 8px; font-family: var(--font-mono); font-size: .85rem; }
+#addBox details summary { cursor: pointer; padding: 4px 0; }
+#lBody { max-height: 46vh; overflow: auto; margin-top: 8px; }
+#lBody h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 14px 0 6px; }
+.lrow { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.lrow .lw { font-family: var(--font-text); font-size: 1.05rem; min-width: 8em; }
+.lrow .ln { font-size: .8rem; min-width: 7em; }
+.lrow input.lsplit { flex: 0 1 11em; min-height: 32px; padding: 3px 8px; font-family: var(--font-mono); font-size: .85rem; }
