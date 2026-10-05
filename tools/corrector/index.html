@@ -294,6 +294,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
         <select class="field" id="spkSel" aria-label="Interviewer speaker"></select>
         <span class="muted" id="spkMsg" role="status">is the interviewer. Their lines start with I: and are bold. Everyone else is R: in plain text.</span>
       </div>
+      <div id="spkSample"></div>
       <div class="row">
         <label class="chk"><input type="checkbox" id="autoSwitch" checked> Pressing Enter starts a line for the other speaker (I and R swap)</label>
       </div>
@@ -820,7 +821,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
     S.speakers = S.chunks.speakerOrder || [];
     var id = idForReply(reply, S.chunks);
     S.key = "corrector2:" + id;
-    S.interviewer = S.speakers[0] || null;
+    S.interviewer = guessInterviewer() || S.speakers[0] || null;
     var saved = store("get");
     if (saved) { S.edits = saved.edits || {}; S.done = saved.done || {}; S.interviewer = saved.interviewer || S.interviewer; S.reviewWords = saved.reviewWords || REVIEW_DEFAULT.slice(); S.autoSwitch = saved.autoSwitch !== false; }
     else {
@@ -834,10 +835,18 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
     $("xName").value = rec.name;
     $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
     buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
+    if (!saved) { $("tSpk").click(); $("spkMsg").textContent = "Guessed from who asks the questions. Check the first lines and change it if it is wrong."; }       // a new recording: confirm who is who first
     var first = 0;
     for (var i = 0; i < S.chunks.length; i++) { if (!S.done[i]) { first = i; break; } }
     select(first, false);
     updateProgress();
+  }
+  function guessInterviewer() {               // the speaker who asks the most questions is taken to be the interviewer
+    var q = {};
+    S.speakers.forEach(function (sp) { q[sp] = 0; });
+    S.chunks.forEach(function (c) { c.rawRuns.forEach(function (r) { if (r.speaker && /\?/.test(r.text)) q[r.speaker] += (r.text.match(/\?/g) || []).length; }); });
+    var best = null; S.speakers.forEach(function (sp) { if (best === null || q[sp] > q[best]) best = sp; });
+    return best;
   }
   function showSetup() {                       // back to the list of recordings
     stash(); video.pause();
@@ -1259,6 +1268,13 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
     var sel = $("spkSel"); sel.innerHTML = "";
     S.speakers.forEach(function (name) {
       var o = document.createElement("option"); o.value = name; o.textContent = name; if (name === S.interviewer) o.selected = true; sel.appendChild(o);
+    });
+    var sample = $("spkSample"); sample.innerHTML = "";
+    S.speakers.forEach(function (name) {
+      var first = null;
+      S.chunks.some(function (c) { return c.rawRuns.some(function (r) { if (r.speaker === name && r.text.split(/\s+/).length >= 6) { first = r.text; return true; } return false; }); });
+      var p = document.createElement("p"); p.className = "muted"; p.style.margin = "2px 0"; p.textContent = name + ": " + (first ? first.slice(0, 110) : "");
+      sample.appendChild(p);
     });
     sel.onchange = function () {
       stash();

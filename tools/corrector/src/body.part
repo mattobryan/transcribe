@@ -97,6 +97,7 @@
         <select class="field" id="spkSel" aria-label="Interviewer speaker"></select>
         <span class="muted" id="spkMsg" role="status">is the interviewer. Their lines start with I: and are bold. Everyone else is R: in plain text.</span>
       </div>
+      <div id="spkSample"></div>
       <div class="row">
         <label class="chk"><input type="checkbox" id="autoSwitch" checked> Pressing Enter starts a line for the other speaker (I and R swap)</label>
       </div>
