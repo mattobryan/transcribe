@@ -24,6 +24,7 @@ pilot = ["torch>=2.0", "transformers>=4.40,<5", "faster-whisper>=1.1,<1.3", "jiw
 ui = ["fastapi>=0.110,<1", "uvicorn>=0.29,<1", "python-multipart>=0.0.9"]
 legacy = ["torch>=2.0", "scipy>=1.10,<1.16", "scikit-learn>=1.1", "editdistance>=0.6",
           "python-Levenshtein>=0.12", "nltk>=3.7", "PyYAML>=6.0"]
+train = ["torch>=2.0", "transformers>=4.40,<5", "peft>=0.10", "jiwer>=3.0,<5"]
 dev = ["pytest>=8", "ruff>=0.6", "httpx>=0.27"]
 
 [project.scripts]
@@ -32,6 +33,9 @@ transcribe-pilot-batch = "transcribe.pilot.batch:main"
 transcribe-pilot-mock = "transcribe.pilot.make_mock:main"
 transcribe-app = "transcribe.app.__main__:main"
 transcribe-review-stats = "transcribe.pilot.review_stats:main"
+transcribe-train-prepare = "transcribe.train.prepare:main"
+transcribe-train-eval = "transcribe.train.evaluate:main"
+transcribe-finetune = "transcribe.train.finetune:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
