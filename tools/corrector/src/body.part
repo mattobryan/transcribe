@@ -96,8 +96,13 @@
     <div class="panel" id="pSpk" hidden>
       <h2>Speakers: who is the interviewer and who answers</h2>
       <p class="muted" style="margin:0 0 6px">Every voice ElevenLabs found gets a role. Give the interviewer <b>I:</b> (bold) and each person answering <b>R:</b>. If one person was split into two voices, give both the same role.</p>
+      <p class="muted" id="spkGuess" style="margin:0 0 6px"></p>
       <div id="spkList"></div>
-      <div class="row"><button class="btn small" id="spkSwap">Swap I and R everywhere</button><span class="muted" id="spkMsg" role="status"></span></div>
+      <div class="row">
+        <button class="btn small" id="spkSwapNew" title="Only the chunks you have not edited change">Swap I and R in chunks I have not edited</button>
+        <button class="btn small" id="spkSwap" title="Also flips the lines you edited">Swap I and R everywhere</button>
+      </div>
+      <div class="row"><span class="muted" id="spkMsg" role="status"></span></div>
       <div class="row">
         <label class="chk"><input type="checkbox" id="autoSwitch" checked> Pressing Enter starts a line for the other speaker (I and R swap)</label>
       </div>

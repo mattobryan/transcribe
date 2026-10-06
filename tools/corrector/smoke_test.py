@@ -75,6 +75,7 @@ with sync_playwright() as p:
     check("a good paste is recognised", pg.inner_text("#pasteMsg").startswith("Looks right") and not pg.is_disabled("#startBtn"), pg.inner_text("#pasteMsg"))
     pg.click("#startBtn"); pg.wait_for_selector("#work:not([hidden])")
     check("opens from the pasted text", pg.locator("#prose .seg").count() > 100)
+    check("the voice that speaks least is guessed as the interviewer", "Speaker 1 is the interviewer" in pg.inner_text("#spkGuess"), pg.inner_text("#spkGuess")[:80])
     # a role for every speaker, a swap for the whole recording
     pg.click("#tSpk"); pg.wait_for_timeout(200) if pg.is_hidden("#pSpk") else None
     check("two speakers, a role for each", pg.locator("#spkList .srow").count() == 2, pg.locator("#spkList .srow").count())

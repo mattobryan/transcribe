@@ -26,6 +26,7 @@
     if (LEX.words[low]) return [[orig, LEX.words[low]]];
     if (AMB.has(low)) return [[orig, "amb"]];
     if (SW.has(low)) return [[orig, "sw"]];
+    if (/^i(['\u2019](m|ll|ve|d))?$/.test(low)) return [[orig, "en"]];               // "I" is never a name
     var capital = orig.charAt(0) !== low.charAt(0);
     if (capital && !sentenceStart) return [[orig, "name"]];               // a name
     if (EN.has(low)) return [[orig, "en"]];
@@ -33,7 +34,7 @@
       var parts = orig.split("-"), segs = [];
       parts.forEach(function (p, i) {
         if (!p) return;
-        var sub = classifyWord(p, false), tail = i < parts.length - 1 ? "-" : "";
+        var sub = classifyWord(p, i === 0 && sentenceStart), tail = i < parts.length - 1 ? "-" : "";
         sub[sub.length - 1] = [sub[sub.length - 1][0] + tail, sub[sub.length - 1][1]];
         segs = segs.concat(sub);
       });
@@ -51,8 +52,8 @@
     return [[orig, "en"]];
   }
 
-  function tokenize(text) {
-    var items = [], re = /[\p{L}]+(?:['’\-][\p{L}]+)*/gu, m, last = 0, first = true;
+  function tokenize(text, startsSentence) {
+    var items = [], re = /[\p{L}]+(?:['’\-][\p{L}]+)*/gu, m, last = 0, first = startsSentence === undefined ? true : startsSentence;
     while ((m = re.exec(text))) {
       var gap = text.slice(last, m.index), start = first || /[.?!]/.test(gap);
       first = false;
@@ -497,12 +498,24 @@
     select(first, false);
     updateProgress();
   }
-  function guessInterviewer() {               // the speaker who asks the most questions is taken to be the interviewer
-    var q = {};
-    S.speakers.forEach(function (sp) { q[sp] = 0; });
-    S.chunks.forEach(function (c) { c.rawRuns.forEach(function (r) { if (r.speaker && /\?/.test(r.text)) q[r.speaker] += (r.text.match(/\?/g) || []).length; }); });
-    var best = null; S.speakers.forEach(function (sp) { if (best === null || q[sp] > q[best]) best = sp; });
-    return best;
+  function speakerFacts() {                    // how much each voice says, and how often in very short turns
+    var f = {}, total = 0;
+    S.speakers.forEach(function (sp) { f[sp] = { words: 0, questions: 0, shortTurns: 0 }; });
+    S.chunks.forEach(function (c) { c.rawRuns.forEach(function (r) {
+      if (!r.speaker || !f[r.speaker]) return;
+      var n = r.text.split(/\s+/).length; f[r.speaker].words += n; total += n;
+      f[r.speaker].questions += (r.text.match(/\?/g) || []).length; if (n <= 3) f[r.speaker].shortTurns += 1;
+    }); });
+    S.speakers.forEach(function (sp) { f[sp].share = f[sp].words / Math.max(1, total); });
+    return f;
+  }
+  function guessInterviewer() {               // the voice that speaks least is the interviewer; if two are close, the one who asks more questions
+    var f = speakerFacts(), order = S.speakers.slice().sort(function (a, b) { return f[a].words - f[b].words; });
+    if (!order.length) return null;
+    if (order.length > 1 && f[order[0]].words > 0.8 * f[order[1]].words) {
+      return order.slice(0, 2).sort(function (a, b) { return f[b].questions - f[a].questions; })[0];
+    }
+    return order[0];
   }
   function showSetup() {                       // back to the list of recordings
     stash(); video.pause();
@@ -928,6 +941,14 @@
   }
   function buildSpeakers() {
     var box = $("spkList"); box.innerHTML = "";
+    var facts = speakerFacts(), guess = guessInterviewer(), tip = $("spkGuess");
+    tip.innerHTML = "";
+    if (guess) {
+      var t1 = document.createElement("span"); t1.textContent = "Best guess: " + guess + " is the interviewer. It says " + Math.round(100 * facts[guess].share) + "% of the words, in " + facts[guess].shortTurns + " very short turns. Interviewers usually speak least. ";
+      var use = document.createElement("button"); use.className = "btn small"; use.textContent = "Use this guess";
+      use.onclick = function () { stash(); S.speakers.forEach(function (sp) { S.roles[sp] = sp === guess ? "I" : "R"; }); afterRoleChange("Done. Chunks you edited keep their labels."); };
+      tip.appendChild(t1); tip.appendChild(use);
+    }
     var words = {}, total = 0;
     S.chunks.forEach(function (c) { c.rawRuns.forEach(function (r) { var n = r.text.split(/\s+/).length; words[r.speaker] = (words[r.speaker] || 0) + n; total += n; }); });
     S.speakers.forEach(function (name) {
@@ -950,6 +971,10 @@
       row.appendChild(head); row.appendChild(sel); row.appendChild(q); box.appendChild(row);
     });
   }
+  $("spkSwapNew").onclick = function () {      // the roles were the wrong way round, but the lines you already fixed are right
+    stash(); S.speakers.forEach(function (sp) { S.roles[sp] = S.roles[sp] === "I" ? "R" : "I"; });
+    afterRoleChange("Done. I: and R: are swapped in the chunks you have not edited. The lines you edited stay as you left them.");
+  };
   $("spkSwap").onclick = function () {         // the two roles came out the wrong way round: flip every speaker and every label you already edited
     stash(); S.speakers.forEach(function (sp) { S.roles[sp] = S.roles[sp] === "I" ? "R" : "I"; }); flipLabelsInEdits();
     afterRoleChange("Done. I: and R: are swapped everywhere, including the lines you edited.");
@@ -1129,9 +1154,11 @@
     var rows = [];
     S.chunks.forEach(function (c, i) {
       parseLines(textOf(i)).forEach(function (l) {
+        var prevTok = "";
         l.text.split(/\s+/).filter(Boolean).forEach(function (tok) {
           var parts = [], re = new RegExp(MARK_SRC, "gu"), last = 0, m, marked = false;
-          function auto(t) { if (t) tokenize(t).forEach(function (it) { it.segs.forEach(function (sg) { parts.push({ t: sg[0], lang: sg[1], src: "auto" }); }); }); }
+          var atStart = !prevTok || /[.?!]["')\u201d\u2019]*$/.test(prevTok), firstPiece = true; prevTok = tok;      // a capital in the middle of a sentence is a name
+          function auto(t) { if (t) { tokenize(t, firstPiece && atStart).forEach(function (it) { it.segs.forEach(function (sg) { parts.push({ t: sg[0], lang: sg[1], src: "auto" }); }); }); firstPiece = false; } }
           while ((m = re.exec(tok))) {
             auto(tok.slice(last, m.index));
             if (m[1] !== undefined) auto(m[1]);
@@ -1144,8 +1171,10 @@
           if (!parts.length) return;
           var langs = []; parts.forEach(function (p) { if (langs.indexOf(p.lang) < 0) langs.push(p.lang); });
           var word = parts.map(function (p) { return p.t; }).join(""), low = word.toLowerCase();
-          rows.push({ chunk: i + 1, start: c.start, end: c.end, speaker: l.label.charAt(0), token: word, language: langs.length > 1 ? "mixed" : langs[0],
-            parts: langs.length > 1 ? parts.map(function (p) { return p.t + ":" + p.lang; }).join("|") : "",
+          var hasSw = langs.indexOf("sw") >= 0, onlySw = langs.length === 1 && hasSw;
+          var language = hasSw && !onlySw ? "mixed" : hasSw ? "sw" : langs.indexOf("name") >= 0 && langs.length === 1 ? "name" : "en";      // sw + en inside one word is a mix; en + name is not
+          rows.push({ chunk: i + 1, start: c.start, end: c.end, speaker: l.label.charAt(0), token: word, language: language,
+            parts: language === "mixed" ? parts.map(function (p) { return p.t + ":" + (p.lang === "sw" ? "sw" : p.lang === "name" ? "name" : "en"); }).join("|") : "",
             source: marked ? "your mark" : (LEX.words[low] || LEX.splits[low]) ? "your list" : "automatic" });
         });
       });
