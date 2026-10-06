@@ -60,7 +60,7 @@ def reference(rows: List[Dict], fallback_text: str = "") -> Tuple[List[str], Lis
         if word:
             words.append(word)
             langs.append(row["language"] if row["language"] in ("sw", "en", "mixed", "name") else "unknown")
-            speakers.append(row.get("speaker") or "?")
+            speakers.append((row.get("speaker") or "?")[:1])
     if not words and fallback_text:
         words = [w for w in (normalize_word(t) for t in fallback_text.split()) if w]
         langs = ["unknown"] * len(words)

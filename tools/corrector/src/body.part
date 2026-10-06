@@ -177,6 +177,7 @@
         <button class="btn primary" id="bSaveGo" title="Ctrl+Shift+Enter">Save and continue</button>
         <button class="btn" id="bFlag">Next flagged</button>
         <button class="btn" id="bLine" title="Alt+I">Switch I:/R:</button>
+        <button class="btn" id="bLine2" title="Make this line I2:">I2:</button>
         <button class="btn" id="bReset">Restore original</button>
       </div>
       <div id="preview" aria-label="Formatted preview"><div class="cap">Formatted preview</div><div id="previewBody"></div></div>

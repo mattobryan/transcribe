@@ -382,6 +382,7 @@ textarea.kt.big { min-height: 11em; }
         <button class="btn primary" id="bSaveGo" title="Ctrl+Shift+Enter">Save and continue</button>
         <button class="btn" id="bFlag">Next flagged</button>
         <button class="btn" id="bLine" title="Alt+I">Switch I:/R:</button>
+        <button class="btn" id="bLine2" title="Make this line I2:">I2:</button>
         <button class="btn" id="bReset">Restore original</button>
       </div>
       <div id="preview" aria-label="Formatted preview"><div class="cap">Formatted preview</div><div id="previewBody"></div></div>
@@ -1049,11 +1050,11 @@ textarea.kt.big { min-height: 11em; }
     toast("No unchecked flagged chunks left");
   }
   function editPlaying() { video.pause(); select(chunkAt(video.currentTime), false, true); }      // the section being heard goes into the editor
-  function switchLine() {         // I: <-> R: on the line with the cursor
+  function switchLine(force) {    // I: <-> R: on the line with the cursor; force = a given label such as I2
     var ta = $("text"), v = ta.value, pos = ta.selectionStart;
     var a = v.lastIndexOf("\n", pos - 1) + 1, b = v.indexOf("\n", pos); if (b < 0) b = v.length;
     var line = v.slice(a, b), m = LABEL.exec(line), body = line.replace(LABEL, "");
-    var next = m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " : "I: ";
+    var next = force ? force + ": " : m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " : "I: ";
     ta.value = v.slice(0, a) + next + body + v.slice(b);
     var p = a + next.length + Math.max(0, pos - a - (m ? m[0].length : 0));
     ta.setSelectionRange(p, p); beginEdit(); showPreview(); stash(); $("cSpk").textContent = who(S.idx);
@@ -1178,6 +1179,7 @@ textarea.kt.big { min-height: 11em; }
   $("bPrev").onclick = function () { select(S.idx - 1, true); }; $("bSave").onclick = saveNext; $("bSaveGo").onclick = function () { saveAnd("continue"); }; $("bFlag").onclick = nextFlagged;
   $("bHear").onclick = editPlaying; $("bNow").onclick = function () { userScrollUntil = 0; markNow(true); };
   $("bLine").onclick = function () { $("text").focus(); switchLine(); };
+  $("bLine2").onclick = function () { $("text").focus(); switchLine("I2"); };
   $("bReset").onclick = function () { $("text").value = origText(S.idx); stash(); S.dirty = false; select(S.idx, false, true); };
   $("text").addEventListener("blur", stash);
 
@@ -1358,7 +1360,7 @@ textarea.kt.big { min-height: 11em; }
       var share = document.createElement("span"); share.className = "muted"; share.textContent = " · " + Math.round(100 * (words[name] || 0) / Math.max(1, total)) + "% of the words";
       head.appendChild(nm); head.appendChild(share);
       var sel = document.createElement("select"); sel.className = "field"; sel.setAttribute("aria-label", "Role of " + name);
-      [["I", "Interviewer (I:, bold)"], ["R", "Respondent (R:, plain)"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if ((S.roles[name] || "R") === o[0]) op.selected = true; sel.appendChild(op); });
+      [["I", "Interviewer (I:, bold)"], ["I2", "Interviewer 2 (I2:, bold)"], ["R", "Respondent (R:, plain)"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if ((S.roles[name] || "R") === o[0]) op.selected = true; sel.appendChild(op); });
       sel.onchange = function () {
         stash(); S.roles[name] = sel.value;
         if (Object.keys(S.edits).length) {
@@ -1448,6 +1450,7 @@ textarea.kt.big { min-height: 11em; }
     var body = "";
     body += paraXml(runXml({ t: name.toUpperCase(), b: true, i: false }, true), "center");
     body += paraXml(runXml({ t: "I: Interviewer", b: true, i: false }));
+    if (turns().some(function (t) { return t.label === "I2"; })) body += paraXml(runXml({ t: "I2: Interviewer 2", b: true, i: false }));
     body += paraXml(runXml({ t: "R: Respondent", b: false, i: false }));
     turns().forEach(function (t) {
       var isI = t.label.charAt(0) === "I", segs = fmtSegs(t.text, isI, false, false);
@@ -1571,7 +1574,7 @@ textarea.kt.big { min-height: 11em; }
           var word = parts.map(function (p) { return p.t; }).join(""), low = word.toLowerCase();
           var hasSw = langs.indexOf("sw") >= 0, onlySw = langs.length === 1 && hasSw;
           var language = hasSw && !onlySw ? "mixed" : hasSw ? "sw" : langs.indexOf("name") >= 0 && langs.length === 1 ? "name" : "en";      // sw + en inside one word is a mix; en + name is not
-          rows.push({ chunk: i + 1, start: c.start, end: c.end, speaker: l.label.charAt(0), token: word, language: language,
+          rows.push({ chunk: i + 1, start: c.start, end: c.end, speaker: l.label, token: word, language: language,
             parts: language === "mixed" ? parts.map(function (p) { return p.t + ":" + (p.lang === "sw" ? "sw" : p.lang === "name" ? "name" : "en"); }).join("|") : "",
             source: marked ? "your mark" : (LEX.words[low] || LEX.splits[low]) ? "your list" : "automatic" });
         });
