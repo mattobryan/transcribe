@@ -192,3 +192,7 @@ textarea.kt { width: 100%; min-height: 6.5em; border: 1px solid var(--line); bac
 textarea.kt.big { min-height: 11em; }
 #pasteMsg.good { color: var(--ok); font-weight: 500; }
 #pasteMsg.bad { color: var(--flag); }
+
+.srow { display: grid; grid-template-columns: minmax(10em, 14em) minmax(12em, 16em) minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.srow .sline { font-family: var(--font-text); font-size: .95rem; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .srow { grid-template-columns: minmax(0, 1fr); } }

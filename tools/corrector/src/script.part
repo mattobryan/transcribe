@@ -276,7 +276,7 @@
   window.__buildChunks = buildChunks; window.__stripFillers = stripFillers; window.__tokenize = tokenize; window.__bodyHTML = bodyHTML; window.__parseLines = parseLines;
 
   /* ---------- state ---------- */
-  var S = { dirty: false, oneShot: null, autoSwitch: true, chunks: [], edits: {}, done: {}, reviewWords: [], interviewer: null, speakers: [], idx: 0, key: "", undo: null, mediaUrl: null, shown: false };
+  var S = { dirty: false, oneShot: null, autoSwitch: true, chunks: [], edits: {}, done: {}, reviewWords: [], interviewer: null, roles: {}, speakers: [], idx: 0, key: "", undo: null, mediaUrl: null, shown: false };
   var video = $("video");
 
   function store(op, val, key) {
@@ -286,9 +286,9 @@
     } catch (e) { /* storage unavailable: the page still works for this visit */ }
     return null;
   }
-  function persist() { if (S.key) store("set", { edits: S.edits, done: S.done, interviewer: S.interviewer, reviewWords: S.reviewWords, autoSwitch: S.autoSwitch }); }
+  function persist() { if (S.key) store("set", { edits: S.edits, done: S.done, interviewer: S.interviewer, roles: S.roles, reviewWords: S.reviewWords, autoSwitch: S.autoSwitch }); }
 
-  function roleOf(speaker) { return speaker && speaker === S.interviewer ? "I" : "R"; }
+  function roleOf(speaker) { return (speaker && S.roles[speaker]) || "R"; }
   function origText(i) { return S.chunks[i].runs.map(function (r) { return roleOf(r.speaker) + ": " + r.text; }).join("\n"); }
   function hasEdit(i) { return Object.prototype.hasOwnProperty.call(S.edits, i); }
   function textOf(i) { return hasEdit(i) ? S.edits[i] : origText(i); }
@@ -472,8 +472,11 @@
     var id = idForReply(reply, S.chunks);
     S.key = "corrector2:" + id;
     S.interviewer = guessInterviewer() || S.speakers[0] || null;
+    S.roles = {}; S.speakers.forEach(function (sp) { S.roles[sp] = sp === S.interviewer ? "I" : "R"; });
     var saved = store("get");
-    if (saved) { S.edits = saved.edits || {}; S.done = saved.done || {}; S.interviewer = saved.interviewer || S.interviewer; S.reviewWords = saved.reviewWords || REVIEW_DEFAULT.slice(); S.autoSwitch = saved.autoSwitch !== false; }
+    if (saved) { S.edits = saved.edits || {}; S.done = saved.done || {};
+      if (saved.roles) S.roles = saved.roles; else if (saved.interviewer) { S.speakers.forEach(function (sp) { S.roles[sp] = sp === saved.interviewer ? "I" : "R"; }); }
+      S.interviewer = saved.interviewer || S.interviewer; S.reviewWords = saved.reviewWords || REVIEW_DEFAULT.slice(); S.autoSwitch = saved.autoSwitch !== false; }
     else {
       var old = store("get", null, "corrector:" + id);
       S.edits = old ? migrate(old) : {}; S.done = old ? (old.done || {}) : {}; S.reviewWords = REVIEW_DEFAULT.slice();
@@ -486,7 +489,9 @@
     resetAddForm();
     $("setup").hidden = true; $("work").hidden = false; $("progress").hidden = false; $("tools").hidden = false; $("panels").hidden = false;
     buildProse(); buildSpeakers(); showReview(); scheduleRail(); $("autoSwitch").checked = S.autoSwitch;
-    if (!saved) { $("tSpk").click(); $("spkMsg").textContent = "Guessed from who asks the questions. Check the first lines and change it if it is wrong."; }       // a new recording: confirm who is who first
+    var warn = !S.speakers.length ? "This transcript has no speaker labels, so every line starts with R:. Run it again with diarize set to true, or split the lines yourself with Enter and Alt+I."
+      : S.speakers.length === 1 ? "ElevenLabs found only one speaker, so every line starts with R:. Run it again with num_speakers set to the real number of people, or split the lines yourself with Enter and Alt+I." : "";
+    if (!saved || warn) { $("tSpk").click(); $("spkMsg").textContent = warn || "Guessed from who asks the questions. Check each speaker and change the role if it is wrong."; }       // a new recording: confirm who is who first
     var first = 0;
     for (var i = 0; i < S.chunks.length; i++) { if (!S.done[i]) { first = i; break; } }
     select(first, false);
@@ -914,30 +919,41 @@
   $("rClear").onclick = function () { S.reviewWords = []; afterReviewChange(); };
   $("rDefault").onclick = function () { S.reviewWords = REVIEW_DEFAULT.slice(); afterReviewChange(); };
 
-  /* ---------- who is the interviewer ---------- */
+  /* ---------- who is the interviewer: a role for every speaker ---------- */
+  function flipLabelsInEdits() {
+    for (var k in S.edits) S.edits[k] = S.edits[k].split("\n").map(function (l) { var m = LABEL.exec(l); return m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " + l.replace(LABEL, "") : l; }).join("\n");
+  }
+  function afterRoleChange(msg) {
+    persist(); scheduleProse(); $("text").value = textOf(S.idx); showPreview(); $("cSpk").textContent = who(S.idx); buildSpeakers(); $("spkMsg").textContent = msg;
+  }
   function buildSpeakers() {
-    var sel = $("spkSel"); sel.innerHTML = "";
-    S.speakers.forEach(function (name) {
-      var o = document.createElement("option"); o.value = name; o.textContent = name; if (name === S.interviewer) o.selected = true; sel.appendChild(o);
-    });
-    var sample = $("spkSample"); sample.innerHTML = "";
+    var box = $("spkList"); box.innerHTML = "";
+    var words = {}, total = 0;
+    S.chunks.forEach(function (c) { c.rawRuns.forEach(function (r) { var n = r.text.split(/\s+/).length; words[r.speaker] = (words[r.speaker] || 0) + n; total += n; }); });
     S.speakers.forEach(function (name) {
       var first = null;
       S.chunks.some(function (c) { return c.rawRuns.some(function (r) { if (r.speaker === name && r.text.split(/\s+/).length >= 6) { first = r.text; return true; } return false; }); });
-      var p = document.createElement("p"); p.className = "muted"; p.style.margin = "2px 0"; p.textContent = name + ": " + (first ? first.slice(0, 110) : "");
-      sample.appendChild(p);
+      var row = document.createElement("div"); row.className = "srow";
+      var head = document.createElement("div"); head.className = "shead";
+      var nm = document.createElement("b"); nm.textContent = name;
+      var share = document.createElement("span"); share.className = "muted"; share.textContent = " · " + Math.round(100 * (words[name] || 0) / Math.max(1, total)) + "% of the words";
+      head.appendChild(nm); head.appendChild(share);
+      var sel = document.createElement("select"); sel.className = "field"; sel.setAttribute("aria-label", "Role of " + name);
+      [["I", "Interviewer (I:, bold)"], ["R", "Respondent (R:, plain)"]].forEach(function (o) { var op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; if ((S.roles[name] || "R") === o[0]) op.selected = true; sel.appendChild(op); });
+      sel.onchange = function () {
+        stash(); S.roles[name] = sel.value;
+        if (Object.keys(S.edits).length) {
+          afterRoleChange("Done. Chunks you already edited keep their labels: use Swap I and R everywhere, or Alt+I on one line.");
+        } else afterRoleChange("Done. " + name + " is now " + (sel.value === "I" ? "the interviewer (I:)." : "a respondent (R:)."));
+      };
+      var q = document.createElement("div"); q.className = "muted sline"; q.textContent = first ? "“" + first.slice(0, 120) + "”" : "";
+      row.appendChild(head); row.appendChild(sel); row.appendChild(q); box.appendChild(row);
     });
-    sel.onchange = function () {
-      stash();
-      var was = S.interviewer; S.interviewer = sel.value;
-      if (S.speakers.length === 2 && was !== S.interviewer) {          // two speakers: flip the labels you already edited
-        for (var k in S.edits) S.edits[k] = S.edits[k].split("\n").map(function (l) { var m = LABEL.exec(l); return m ? (m[1].charAt(0) === "I" ? "R" : "I") + m[1].slice(1) + ": " + l.replace(LABEL, "") : l; }).join("\n");
-      }
-      persist();
-      scheduleProse(); $("text").value = textOf(S.idx); showPreview();
-      $("spkMsg").textContent = "Done. " + S.interviewer + " is the interviewer (I:).";
-    };
   }
+  $("spkSwap").onclick = function () {         // the two roles came out the wrong way round: flip every speaker and every label you already edited
+    stash(); S.speakers.forEach(function (sp) { S.roles[sp] = S.roles[sp] === "I" ? "R" : "I"; }); flipLabelsInEdits();
+    afterRoleChange("Done. I: and R: are swapped everywhere, including the lines you edited.");
+  };
 
   /* ---------- export ---------- */
   function turns() {          // lines of the same speaker run together, across chunk boundaries

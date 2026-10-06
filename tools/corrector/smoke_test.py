@@ -75,6 +75,15 @@ with sync_playwright() as p:
     check("a good paste is recognised", pg.inner_text("#pasteMsg").startswith("Looks right") and not pg.is_disabled("#startBtn"), pg.inner_text("#pasteMsg"))
     pg.click("#startBtn"); pg.wait_for_selector("#work:not([hidden])")
     check("opens from the pasted text", pg.locator("#prose .seg").count() > 100)
+    # a role for every speaker, a swap for the whole recording
+    pg.click("#tSpk"); pg.wait_for_timeout(200) if pg.is_hidden("#pSpk") else None
+    check("two speakers, a role for each", pg.locator("#spkList .srow").count() == 2, pg.locator("#spkList .srow").count())
+    pg.click('#prose .seg[data-i="30"]'); before = pg.input_value("#text")
+    pg.click("#spkSwap"); pg.wait_for_timeout(300); after = pg.input_value("#text")
+    flip = lambda t: "\n".join(("R" if l.startswith("I:") else "I" if l.startswith("R:") else l[:1]) + l[1:] for l in t.split("\n"))
+    check("swap flips I: and R: everywhere", after == flip(before), (before[:60], after[:60]))
+    pg.select_option("#spkList .srow:nth-child(1) select", "I"); pg.wait_for_timeout(300)
+    check("two voices can share one role", "R:" not in pg.input_value("#text") and "I:" in pg.input_value("#text"), pg.input_value("#text")[:80])
     check("no page errors", not errs, errs)
     b.close()
 print("\n%d failure(s)" % len(failures)); sys.exit(1 if failures else 0)
