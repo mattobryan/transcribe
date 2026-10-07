@@ -85,6 +85,17 @@ with sync_playwright() as p:
     check("swap flips I: and R: everywhere", after == flip(before), (before[:60], after[:60]))
     pg.select_option("#spkList .srow:nth-child(1) select", "I"); pg.wait_for_timeout(300)
     check("two voices can share one role", "R:" not in pg.input_value("#text") and "I:" in pg.input_value("#text"), pg.input_value("#text")[:80])
+    # your corrections teach the roles: edited chunks labelled one way make unedited ones follow
+    pg.select_option("#spkList .srow:nth-child(1) select", "R"); pg.select_option("#spkList .srow:nth-child(2) select", "I"); pg.wait_for_timeout(300)
+    pg.click('#prose .seg[data-i="60"]'); later_before = pg.input_value("#text")
+    pg.click('#prose .seg[data-i="40"]'); wrong = pg.input_value("#text")
+    for n in range(40, 48):
+        pg.click('#prose .seg[data-i="%d"]' % n); t = pg.input_value("#text")
+        pg.fill("#text", flip(t)); pg.click("#bSaveGo"); pg.wait_for_timeout(250)
+    pg.click('#prose .seg[data-i="60"]'); learned = pg.input_value("#text")
+    check("roles are learned from corrections", learned == flip(later_before), learned[:60])
+    pg.click('#prose .seg[data-i="40"]')
+    check("an edited chunk keeps what was typed", pg.input_value("#text") == flip(wrong), pg.input_value("#text")[:60])
     check("no page errors", not errs, errs)
     b.close()
 print("\n%d failure(s)" % len(failures)); sys.exit(1 if failures else 0)

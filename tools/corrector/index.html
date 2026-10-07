@@ -866,6 +866,22 @@ textarea.kt.big { min-height: 11em; }
     return edits;
   }
 
+  function learnRoles() {     // your own corrections teach the roles: if you keep labelling a voice I: (or R:), chunks you have not edited follow
+    var tally = {}, changed = false;
+    for (var k in S.edits) {
+      var c = S.chunks[+k], lines = String(S.edits[k]).split("\n").filter(function (x) { return x.trim(); });
+      if (!c || lines.length !== c.runs.length) continue;
+      lines.forEach(function (ln, n) {
+        var m = LABEL.exec(ln), sp = c.runs[n].speaker; if (!m || !sp) return;
+        var t = tally[sp] = tally[sp] || {}; t[m[1]] = (t[m[1]] || 0) + 1;
+      });
+    }
+    for (var sp in tally) {
+      var best = null, total = 0; for (var lab in tally[sp]) { total += tally[sp][lab]; if (!best || tally[sp][lab] > tally[sp][best]) best = lab; }
+      if (total >= 6 && tally[sp][best] / total >= 0.7 && S.roles[sp] !== best) { S.roles[sp] = best; changed = true; }
+    }
+    return changed;
+  }
   function open(reply, rec, media) {
     S.rec = rec; S.chunks = buildChunks(reply); S.shown = false; S.idx = 0; proseNow = -1;
     S.speakers = S.chunks.speakerOrder || [];
@@ -881,6 +897,7 @@ textarea.kt.big { min-height: 11em; }
       var old = store("get", null, "corrector:" + id);
       S.edits = old ? migrate(old) : {}; S.done = old ? (old.done || {}) : {}; S.reviewWords = REVIEW_DEFAULT.slice();
     }
+    if (learnRoles()) toast("Roles updated from your corrections: unedited chunks now follow them");
     persist();
     if (S.mediaUrl) URL.revokeObjectURL(S.mediaUrl);
     S.mediaUrl = URL.createObjectURL(media);
@@ -1036,7 +1053,9 @@ textarea.kt.big { min-height: 11em; }
   }
   function beginEdit() { S.dirty = true; if (!video.paused) video.pause(); }      // typing stops the audio; saving starts it again
   function saveAnd(mode) {
-    stash(); S.done[S.idx] = true; S.dirty = false; persist(); paintItem(S.idx); updateProgress();
+    stash(); S.done[S.idx] = true; S.dirty = false;
+    if (learnRoles()) { scheduleProse(); buildSpeakers(); toast("Roles updated from your corrections"); }
+    persist(); paintItem(S.idx); updateProgress();
     var next = Math.min(S.idx + 1, S.chunks.length - 1);
     select(next, true);
     S.oneShot = mode === "chunk" ? next : null;       // "next chunk": play it and stop. "continue": keep going through the whole script
